@@ -14,6 +14,7 @@ TOPICS = [
     "reward.score",
     "render.event",
     "render.lifecycle",
+    "video.complete",
 ]
 
 PARTITIONS = int(env.get("KAFKA_PARTITIONS", "3"))

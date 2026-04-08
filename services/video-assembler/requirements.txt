@@ -1,0 +1,2 @@
+pydantic>=2.5
+confluent-kafka>=2.3

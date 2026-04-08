@@ -100,6 +100,7 @@ services:
     environment:
       <<: *app-env
       STUDIO_SERVICE_NAME: scene-service
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     networks:
       - studio-net
     depends_on:
@@ -179,6 +180,23 @@ services:
       kafka:
         condition: service_healthy
 
+  video-assembler:
+    build:
+      context: services/video-assembler
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      STUDIO_SERVICE_NAME: video-assembler
+    volumes:
+      - frames-data:/data/frames
+      - videos-data:/data/videos
+    networks:
+      - studio-net
+    depends_on:
+      kafka:
+        condition: service_healthy
+
 # ---------------------------------------------------------------------------
 # Volumes
 # ---------------------------------------------------------------------------
@@ -190,6 +208,8 @@ volumes:
   minio-data:
     driver: local
   frames-data:
+    driver: local
+  videos-data:
     driver: local
 
 # ---------------------------------------------------------------------------
