@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, String, DateTime, Text
+from sqlalchemy import Column, String, Integer, DateTime, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB
 from sqlalchemy.orm import DeclarativeBase
 
@@ -27,9 +27,8 @@ class Render(Base):
     created_at = Column(DateTime(timezone=True), default=_utcnow)
     updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
-    # Map to existing renders table columns
-    frame_start = Column("frame_start", type_=type(0), default=0)
-    frame_end = Column("frame_end", type_=type(0), default=240)
+    frame_start = Column(Integer, nullable=False, default=0)
+    frame_end = Column(Integer, nullable=False, default=240)
 
 
 class Event(Base):

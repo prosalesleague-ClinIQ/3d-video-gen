@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 def _seed_from_prompt(prompt: str) -> int:
-    return int(hashlib.sha256(prompt.encode()).hexdigest()[:8], 16)
+    return int(hashlib.sha256(prompt.encode()).hexdigest()[:8], 16) & 0x7FFFFFFF
 
 
 def _scene_id_from_prompt(prompt: str, seed: int) -> UUID:
