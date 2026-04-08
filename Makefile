@@ -1,4 +1,4 @@
-.PHONY: up down logs reset build ps health topics db test bootstrap smoke
+.PHONY: up down logs reset build ps health topics db test bootstrap smoke test-e2e
 
 # ---------------------------------------------------------------------------
 # Core commands
@@ -44,6 +44,10 @@ bootstrap:
 smoke:
 	@pip install -q -r bootstrap/requirements.txt
 	cd bootstrap && python3 smoke_test.py
+
+## Run E2E pipeline test: prompt → scene → render → frame → score (pytest)
+test-e2e:
+	bash scripts/run_e2e.sh
 
 # ---------------------------------------------------------------------------
 # Helpers
