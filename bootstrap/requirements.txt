@@ -1,0 +1,4 @@
+psycopg2-binary>=2.9
+kafka-python>=2.0
+minio>=7.2
+requests>=2.31

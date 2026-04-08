@@ -10,4 +10,6 @@ dependencies = [
     "studio-shared",
     "studio-db",
     "studio-kafka",
+    "fastapi>=0.109",
+    "uvicorn[standard]>=0.27",
 ]

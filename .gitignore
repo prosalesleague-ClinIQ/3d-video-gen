@@ -10,3 +10,4 @@ build/
 venv/
 *.sqlite3
 /data/
+.vercel

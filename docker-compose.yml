@@ -1,64 +1,129 @@
+###############################################################################
+# Studio – Local Development Stack
+# Mirrors the Helm umbrella chart. Start: docker compose up --build
+###############################################################################
+
+x-app-env: &app-env
+  STUDIO_DATABASE_URL: ${STUDIO_DATABASE_URL:-postgresql+asyncpg://studio:studio@postgres:5432/studio}
+  STUDIO_KAFKA_BOOTSTRAP_SERVERS: ${STUDIO_KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+  STUDIO_FRAME_STORAGE_PATH: ${STUDIO_FRAME_STORAGE_PATH:-/data/frames}
+  STUDIO_MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
+  STUDIO_MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minio}
+  STUDIO_MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minio123}
+  STUDIO_MINIO_BUCKET: ${MINIO_BUCKET:-studio-frames}
+
 services:
+  # ---------------------------------------------------------------------------
+  # Infrastructure
+  # ---------------------------------------------------------------------------
   postgres:
-    image: postgres:16-alpine
+    image: postgres:15
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: studio
-      POSTGRES_PASSWORD: studio
-      POSTGRES_DB: studio
+      POSTGRES_DB: ${POSTGRES_DB:-studio}
+      POSTGRES_USER: ${POSTGRES_USER:-studio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-studio}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    networks:
+      - studio-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U studio"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-studio} -d ${POSTGRES_DB:-studio}"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 10s
 
   kafka:
     image: apache/kafka:3.7.0
+    restart: unless-stopped
     ports:
-      - "9092:9092"
+      - "${KAFKA_PORT:-9092}:9092"
+      - "9093:9093"
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: "broker,controller"
-      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
-      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092"
+      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,EXTERNAL://0.0.0.0:29092"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092"
       KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT"
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - studio-net
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
       interval: 10s
       timeout: 10s
-      retries: 10
+      retries: 15
+      start_period: 30s
 
-  scene-generator:
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minio123}
+    volumes:
+      - minio-data:/data
+    networks:
+      - studio-net
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Application Services
+  # ---------------------------------------------------------------------------
+  scene-service:
     build:
       context: .
       dockerfile: services/scene_generator/Dockerfile
+    restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
-      STUDIO_DATABASE_URL: "postgresql+asyncpg://studio:studio@postgres:5432/studio"
-      STUDIO_KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
-      STUDIO_SERVICE_NAME: "scene-generator"
+      <<: *app-env
+      STUDIO_SERVICE_NAME: scene-service
+    networks:
+      - studio-net
     depends_on:
       postgres:
         condition: service_healthy
       kafka:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
-  controller:
+  controller-service:
     build:
-      context: .
-      dockerfile: services/controller/Dockerfile
+      context: services/controller-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
     environment:
-      STUDIO_DATABASE_URL: "postgresql+asyncpg://studio:studio@postgres:5432/studio"
-      STUDIO_KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
-      STUDIO_SERVICE_NAME: "controller"
+      <<: *app-env
+      STUDIO_SERVICE_NAME: controller-service
+    networks:
+      - studio-net
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,45 +132,75 @@ services:
 
   blender-worker:
     build:
-      context: .
-      dockerfile: services/blender_worker/Dockerfile
+      context: workers/blender-worker
+      dockerfile: Dockerfile
+    restart: unless-stopped
     environment:
-      STUDIO_DATABASE_URL: "postgresql+asyncpg://studio:studio@postgres:5432/studio"
-      STUDIO_KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
-      STUDIO_FRAME_STORAGE_PATH: "/data/frames"
-      STUDIO_SERVICE_NAME: "blender-worker"
+      <<: *app-env
+      STUDIO_SERVICE_NAME: blender-worker
+      WORKER_ID: blender-worker-1
     volumes:
-      - frame-storage:/data/frames
+      - frames-data:/data/frames
+    networks:
+      - studio-net
     depends_on:
       postgres:
         condition: service_healthy
       kafka:
         condition: service_healthy
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    # ---------------------------------------------------------------------------
+    # GPU: uncomment below if NVIDIA GPU + nvidia-container-toolkit is available
+    # ---------------------------------------------------------------------------
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
 
-  reward:
+  reward-service:
     build:
       context: .
       dockerfile: services/reward/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
     environment:
-      STUDIO_DATABASE_URL: "postgresql+asyncpg://studio:studio@postgres:5432/studio"
-      STUDIO_KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
-      STUDIO_FRAME_STORAGE_PATH: "/data/frames"
-      STUDIO_SERVICE_NAME: "reward"
+      <<: *app-env
+      STUDIO_SERVICE_NAME: reward-service
     volumes:
-      - frame-storage:/data/frames
+      - frames-data:/data/frames
+    networks:
+      - studio-net
     depends_on:
       postgres:
         condition: service_healthy
       kafka:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8002/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
+# ---------------------------------------------------------------------------
+# Volumes
+# ---------------------------------------------------------------------------
 volumes:
   postgres-data:
-  frame-storage:
+    driver: local
+  kafka-data:
+    driver: local
+  minio-data:
+    driver: local
+  frames-data:
+    driver: local
+
+# ---------------------------------------------------------------------------
+# Network
+# ---------------------------------------------------------------------------
+networks:
+  studio-net:
+    driver: bridge

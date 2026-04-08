@@ -11,4 +11,5 @@ COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/pytho
 COPY --from=builder /usr/local/bin /usr/local/bin
 COPY --from=builder /app /app
 WORKDIR /app
-CMD ["python", "-m", "controller.main"]
+EXPOSE 8001
+CMD ["uvicorn", "controller.main:app", "--host", "0.0.0.0", "--port", "8001"]
