@@ -1,0 +1,4 @@
+apiVersion: v2
+name: reward
+version: 0.1.0
+description: Frame quality scoring service

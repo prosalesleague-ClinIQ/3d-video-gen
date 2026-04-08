@@ -1,0 +1,4 @@
+apiVersion: v2
+name: blender-worker
+version: 0.1.0
+description: GPU-accelerated Blender render worker

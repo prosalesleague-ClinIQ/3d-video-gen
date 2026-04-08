@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-blender-worker
+  namespace: {{ .Values.global.namespace }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-blender-worker
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-blender-worker
+    spec:
+      nodeSelector:
+        gpu: "true"
+      containers:
+        - name: blender-worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          envFrom:
+            - configMapRef:
+                name: studio-config
+          env:
+            - name: STUDIO_SERVICE_NAME
+              value: "blender-worker"
+          resources:
+            requests:
+              cpu: {{ .Values.resources.requests.cpu | quote }}
+              memory: {{ .Values.resources.requests.memory }}
+            limits:
+              cpu: {{ .Values.resources.limits.cpu | quote }}
+              memory: {{ .Values.resources.limits.memory }}
+              nvidia.com/gpu: {{ .Values.gpu | quote }}
+          volumeMounts:
+            - name: frame-storage
+              mountPath: /data/frames
+          livenessProbe:
+            exec:
+              command: ["python", "-c", "import bpy; print('ok')"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["python", "-c", "import sys; sys.exit(0)"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+      volumes:
+        - name: frame-storage
+          persistentVolumeClaim:
+            claimName: frame-storage-pvc

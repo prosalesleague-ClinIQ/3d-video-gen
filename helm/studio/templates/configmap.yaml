@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: studio-config
+  namespace: {{ .Values.global.namespace }}
+data:
+  STUDIO_DATABASE_URL: {{ .Values.global.env.databaseUrl | quote }}
+  STUDIO_KAFKA_BOOTSTRAP_SERVERS: {{ .Values.global.env.kafkaBootstrapServers | quote }}
+  STUDIO_FRAME_STORAGE_PATH: {{ .Values.global.env.frameStoragePath | quote }}

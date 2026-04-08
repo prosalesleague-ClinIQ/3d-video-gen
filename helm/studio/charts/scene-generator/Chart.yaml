@@ -1,0 +1,4 @@
+apiVersion: v2
+name: scene-generator
+version: 0.1.0
+description: FastAPI scene generation service

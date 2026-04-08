@@ -1,0 +1,13 @@
+image:
+  repository: studio/blender-worker
+  tag: latest
+replicas: 1
+gpu: 1
+frameStorage: 50Gi
+resources:
+  requests:
+    cpu: "1"
+    memory: 2Gi
+  limits:
+    cpu: "2"
+    memory: 4Gi

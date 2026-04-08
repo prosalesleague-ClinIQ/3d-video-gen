@@ -1,0 +1,89 @@
+global:
+  namespace: studio
+  image:
+    registry: ""
+    pullPolicy: IfNotPresent
+  env:
+    databaseUrl: "postgresql+asyncpg://studio:studio@studio-postgres:5432/studio"
+    kafkaBootstrapServers: "studio-kafka:9092"
+    frameStoragePath: "/data/frames"
+
+postgres:
+  image: postgres:16-alpine
+  user: studio
+  password: studio
+  database: studio
+  storage: 10Gi
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+kafka:
+  image: apache/kafka:3.7.0
+  clusterId: "MkU3OEVBNTcwNTJENDM2Qk"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+scene-generator:
+  image:
+    repository: studio/scene-generator
+    tag: latest
+  replicas: 1
+  port: 8000
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+controller:
+  image:
+    repository: studio/controller
+    tag: latest
+  replicas: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+blender-worker:
+  image:
+    repository: studio/blender-worker
+    tag: latest
+  replicas: 1
+  gpu: 1
+  frameStorage: 50Gi
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+reward:
+  image:
+    repository: studio/reward
+    tag: latest
+  replicas: 1
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi

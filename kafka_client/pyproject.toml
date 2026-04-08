@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "studio-kafka"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "studio-shared",
+    "aiokafka>=0.10",
+]

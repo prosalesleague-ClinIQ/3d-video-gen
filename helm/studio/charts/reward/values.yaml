@@ -1,0 +1,11 @@
+image:
+  repository: studio/reward
+  tag: latest
+replicas: 1
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi

@@ -1,0 +1,12 @@
+image: postgres:16-alpine
+user: studio
+password: studio
+database: studio
+storage: 10Gi
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi

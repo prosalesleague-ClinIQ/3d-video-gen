@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scene-generator
+  namespace: studio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: scene-generator
+  template:
+    metadata:
+      labels:
+        app: scene-generator
+    spec:
+      containers:
+        - name: scene-generator
+          image: studio/scene-generator:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: STUDIO_DATABASE_URL
+              value: "postgresql+asyncpg://studio:studio@postgres:5432/studio"
+            - name: STUDIO_KAFKA_BOOTSTRAP_SERVERS
+              value: "kafka:9092"
+            - name: STUDIO_SERVICE_NAME
+              value: "scene-generator"
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

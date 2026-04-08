@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: scene-generator
+  namespace: studio
+spec:
+  selector:
+    app: scene-generator
+  ports:
+    - port: 8000
+      targetPort: 8000
+  type: ClusterIP

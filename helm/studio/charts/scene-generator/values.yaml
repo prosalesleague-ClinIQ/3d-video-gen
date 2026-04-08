@@ -1,0 +1,12 @@
+image:
+  repository: studio/scene-generator
+  tag: latest
+replicas: 1
+port: 8000
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi

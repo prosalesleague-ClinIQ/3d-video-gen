@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controller
+  namespace: studio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: controller
+  template:
+    metadata:
+      labels:
+        app: controller
+    spec:
+      containers:
+        - name: controller
+          image: studio/controller:latest
+          env:
+            - name: STUDIO_DATABASE_URL
+              value: "postgresql+asyncpg://studio:studio@postgres:5432/studio"
+            - name: STUDIO_KAFKA_BOOTSTRAP_SERVERS
+              value: "kafka:9092"
+            - name: STUDIO_SERVICE_NAME
+              value: "controller"
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

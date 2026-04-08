@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blender-worker
+  namespace: studio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: blender-worker
+  template:
+    metadata:
+      labels:
+        app: blender-worker
+    spec:
+      nodeSelector:
+        gpu: "true"
+      containers:
+        - name: blender-worker
+          image: studio/blender-worker:latest
+          env:
+            - name: STUDIO_DATABASE_URL
+              value: "postgresql+asyncpg://studio:studio@postgres:5432/studio"
+            - name: STUDIO_KAFKA_BOOTSTRAP_SERVERS
+              value: "kafka:9092"
+            - name: STUDIO_FRAME_STORAGE_PATH
+              value: "/data/frames"
+            - name: STUDIO_SERVICE_NAME
+              value: "blender-worker"
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: frame-storage
+              mountPath: /data/frames
+      volumes:
+        - name: frame-storage
+          persistentVolumeClaim:
+            claimName: frame-storage-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: frame-storage-pvc
+  namespace: studio
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 50Gi

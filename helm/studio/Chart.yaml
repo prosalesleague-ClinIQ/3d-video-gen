@@ -1,0 +1,19 @@
+apiVersion: v2
+name: studio
+description: Distributed video generation pipeline
+version: 0.1.0
+type: application
+
+dependencies:
+  - name: postgres
+    version: 0.1.0
+  - name: kafka
+    version: 0.1.0
+  - name: scene-generator
+    version: 0.1.0
+  - name: controller
+    version: 0.1.0
+  - name: blender-worker
+    version: 0.1.0
+  - name: reward
+    version: 0.1.0

@@ -1,0 +1,5 @@
+SCENE_REQUEST = "scene.request"
+RENDER_COMMAND = "render.command"
+FRAME_OUTPUT = "frame.output"
+REWARD_SCORE = "reward.score"
+RENDER_LIFECYCLE = "render.lifecycle"

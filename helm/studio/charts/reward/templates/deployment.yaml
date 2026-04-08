@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-reward
+  namespace: {{ .Values.global.namespace }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-reward
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-reward
+    spec:
+      containers:
+        - name: reward
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          envFrom:
+            - configMapRef:
+                name: studio-config
+          env:
+            - name: STUDIO_SERVICE_NAME
+              value: "reward"
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: frame-storage
+              mountPath: /data/frames
+          livenessProbe:
+            exec:
+              command: ["python", "-c", "import sys; sys.exit(0)"]
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            exec:
+              command: ["python", "-c", "import sys; sys.exit(0)"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: frame-storage
+          persistentVolumeClaim:
+            claimName: frame-storage-pvc
