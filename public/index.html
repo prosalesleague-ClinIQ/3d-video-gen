@@ -3,76 +3,87 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Studio — 3D Video Generation Pipeline</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0a0a;color:#e0e0e0;min-height:100vh;display:flex;align-items:center;justify-content:center}
-.container{max-width:800px;padding:48px;text-align:center}
-h1{font-size:2.5rem;font-weight:700;margin-bottom:8px;background:linear-gradient(135deg,#6366f1,#8b5cf6,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.subtitle{color:#888;font-size:1.1rem;margin-bottom:48px}
-.pipeline{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;margin-bottom:48px}
-.node{background:#1a1a2e;border:1px solid #2a2a4a;border-radius:10px;padding:16px 20px;min-width:120px}
-.node .label{font-size:.75rem;color:#6366f1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
-.node .name{font-size:.95rem;font-weight:600;color:#e0e0e0}
-.arrow{color:#4a4a6a;font-size:1.2rem}
-.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:48px}
-.stat{background:#111;border:1px solid #222;border-radius:8px;padding:20px}
-.stat .num{font-size:1.5rem;font-weight:700;color:#8b5cf6}
-.stat .desc{font-size:.8rem;color:#666;margin-top:4px}
-.links{display:flex;gap:16px;justify-content:center;flex-wrap:wrap}
-.links a{display:inline-block;padding:10px 24px;border-radius:8px;text-decoration:none;font-size:.9rem;font-weight:500;transition:all .2s}
-.links a.primary{background:#6366f1;color:#fff}
-.links a.primary:hover{background:#5558e6}
-.links a.secondary{border:1px solid #333;color:#aaa}
-.links a.secondary:hover{border-color:#6366f1;color:#e0e0e0}
-.arch{margin-top:48px;padding:32px;background:#111;border:1px solid #222;border-radius:12px;text-align:left}
-.arch h3{font-size:1rem;color:#8b5cf6;margin-bottom:16px}
-.arch pre{font-size:.8rem;color:#888;line-height:1.8;overflow-x:auto}
-.arch pre span{color:#6366f1}
-@media(max-width:600px){h1{font-size:1.8rem}.stats{grid-template-columns:repeat(2,1fr)}.pipeline{flex-direction:column}.arrow{transform:rotate(90deg)}}
-</style>
+<title>Studio — 3D Video Gen</title>
+<meta name="description" content="Enter a prompt, get a 3D-rendered video. Live demo of a distributed Blender pipeline.">
+<meta property="og:title" content="Studio — 3D Video Gen">
+<meta property="og:description" content="Prompt → scene graph → Blender render → MP4. Live demo.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🎬%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<div class="container">
-  <h1>Studio</h1>
-  <p class="subtitle">Distributed 3D Video Generation Pipeline</p>
+<div class="page">
+  <header class="header">
+    <h1>Studio</h1>
+    <p class="subtitle">Prompt → 3D render → MP4 · Live demo</p>
+    <div class="status-pill" id="status-pill">
+      <span class="dot"></span>
+      <span class="label">Checking backend...</span>
+    </div>
+  </header>
 
-  <div class="pipeline">
-    <div class="node"><div class="label">Input</div><div class="name">Prompt</div></div>
-    <div class="arrow">&rarr;</div>
-    <div class="node"><div class="label">Service</div><div class="name">Scene Gen</div></div>
-    <div class="arrow">&rarr;</div>
-    <div class="node"><div class="label">Service</div><div class="name">Controller</div></div>
-    <div class="arrow">&rarr;</div>
-    <div class="node"><div class="label">Worker</div><div class="name">Blender</div></div>
-    <div class="arrow">&rarr;</div>
-    <div class="node"><div class="label">Service</div><div class="name">Reward</div></div>
-  </div>
+  <section class="card">
+    <div class="input-group">
+      <label class="input-label" for="prompt">
+        <span>Describe your scene</span>
+        <span class="hint">⌘+Enter to generate</span>
+      </label>
+      <textarea id="prompt" placeholder="a cinematic golden cube spinning in light"></textarea>
 
-  <div class="stats">
-    <div class="stat"><div class="num">4</div><div class="desc">Microservices</div></div>
-    <div class="stat"><div class="num">240</div><div class="desc">Frames/Render</div></div>
-    <div class="stat"><div class="num">5</div><div class="desc">Kafka Topics</div></div>
-    <div class="stat"><div class="num">6</div><div class="desc">DB Tables</div></div>
-  </div>
+      <div class="examples">
+        <span class="example-chip">a cinematic golden cube spinning in light</span>
+        <span class="example-chip">a purple sphere orbiting a blue planet</span>
+        <span class="example-chip">a chrome torus rotating against dark cosmos</span>
+        <span class="example-chip">a red pyramid glowing in a spotlight</span>
+        <span class="example-chip">a shiny silver monkey under warm light</span>
+      </div>
+    </div>
 
-  <div class="links">
-    <a href="https://github.com/prosalesleague-ClinIQ/3d-video-gen" class="primary">View on GitHub</a>
-    <a href="https://github.com/prosalesleague-ClinIQ/3d-video-gen#readme" class="secondary">Documentation</a>
-  </div>
+    <div class="submit-row">
+      <button id="submit" class="primary">Generate Video</button>
+      <span class="render-stats">~60–90s · 48 frames · 512×512</span>
+    </div>
 
-  <div class="arch">
-    <h3>Data Flow</h3>
-    <pre><span>POST /scene</span> { prompt }
-  &darr;
-<span>scene-service</span> &rarr; Postgres &rarr; Kafka [scene.request]
-  &darr;
-<span>controller</span> &rarr; Postgres (render) &rarr; Kafka [render.command]
-  &darr;
-<span>blender-worker</span> &rarr; frames on disk &rarr; Kafka [frame.output]
-  &darr;
-<span>reward-service</span> &rarr; Postgres (scores) &rarr; Kafka [reward.score]</pre>
-  </div>
+    <div id="progress" class="progress">
+      <div class="progress-label">
+        <span id="progress-label">Starting...</span>
+        <span class="progress-elapsed" id="progress-elapsed">0.0s</span>
+      </div>
+      <div class="progress-bar-container">
+        <div class="progress-bar" id="progress-bar"></div>
+      </div>
+    </div>
+
+    <div id="error-box" class="error-box"></div>
+  </section>
+
+  <section id="video-section" class="card video-section">
+    <div class="video-wrapper">
+      <video id="video" controls autoplay loop muted playsinline></video>
+    </div>
+    <div class="meta-row">
+      <span id="video-meta"></span>
+      <span>MP4 · H.264</span>
+    </div>
+    <details class="scene-graph">
+      <summary>View scene graph JSON</summary>
+      <pre id="scene-graph"></pre>
+    </details>
+  </section>
+
+  <footer class="footer">
+    <p>
+      <a href="https://github.com/prosalesleague-ClinIQ/3d-video-gen" target="_blank" rel="noopener">GitHub</a>
+      &nbsp;·&nbsp;
+      <a href="https://github.com/prosalesleague-ClinIQ/3d-video-gen#readme" target="_blank" rel="noopener">Architecture</a>
+    </p>
+    <p style="margin-top:8px">
+      Backend renders with Blender Cycles on CPU. First request wakes the container (~30s cold start).
+    </p>
+  </footer>
 </div>
+
+<script src="/config.js"></script>
+<script src="/app.js"></script>
 </body>
 </html>
