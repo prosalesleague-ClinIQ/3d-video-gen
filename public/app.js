@@ -1,12 +1,13 @@
 // Kaleidoscope studio — Three.js viewer + Director panel + photo-to-3D + storyboard film compiler.
 
 import * as THREE from "three";
-import {
-  WebGPURenderer,
-  WebGLRenderer,
-  ACESFilmicToneMapping,
-  SRGBColorSpace,
-} from "three/webgpu";
+import { WebGLRenderer, ACESFilmicToneMapping, SRGBColorSpace } from "three";
+// WebGPURenderer is only in the webgpu-bundled subpath (opt-in via ?webgpu=1).
+let WebGPURenderer = null;
+try {
+  const wg = await import("three/webgpu");
+  WebGPURenderer = wg.WebGPURenderer || null;
+} catch (_) { /* WebGPU bundle unavailable — stays null */ }
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RectAreaLightUniformsLib } from "three/addons/lights/RectAreaLightUniformsLib.js";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
@@ -101,7 +102,7 @@ async function createRenderer(canvas) {
   const wantWebGPU = typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).has("webgpu") &&
     typeof navigator !== "undefined" && "gpu" in navigator;
-  if (wantWebGPU) {
+  if (wantWebGPU && WebGPURenderer) {
     try {
       const r = new WebGPURenderer({ canvas, antialias: true, powerPreference: "high-performance" });
       await r.init();
