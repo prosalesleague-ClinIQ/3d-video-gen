@@ -2,71 +2,212 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Studio — 3D Video Gen</title>
-<meta name="description" content="Enter a prompt, get a 3D-rendered video. Live demo of a distributed Blender pipeline.">
-<meta property="og:title" content="Studio — 3D Video Gen">
-<meta property="og:description" content="Prompt → scene graph → Blender render → MP4. Live demo.">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0">
+<title>Studio — AI 3D Film Compiler</title>
+<meta name="description" content="Prompt or photo → 3D kaleidoscope scene → stack into films.">
+<meta property="og:title" content="Studio — AI 3D Film Compiler">
+<meta property="og:description" content="Prompt or photo → cinematic 3D scene → multi-scene film.">
 <meta property="og:type" content="website">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🎬%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="/style.css">
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
 </head>
 <body>
 <div class="page">
   <header class="header">
-    <h1>Studio</h1>
-    <p class="subtitle">Prompt → 3D render → MP4 · Live demo</p>
+    <div class="brand">
+      <div class="logo">🎬</div>
+      <div>
+        <h1>Studio</h1>
+        <p class="subtitle">Prompt or photo → cinematic 3D · stack scenes into films</p>
+      </div>
+    </div>
     <div class="status-pill" id="status-pill">
       <span class="dot"></span>
-      <span class="label">Checking backend...</span>
+      <span class="label">Loading…</span>
     </div>
   </header>
 
-  <section class="card">
-    <div class="input-group">
-      <label class="input-label" for="prompt">
-        <span>Describe your scene</span>
-        <span class="hint">⌘+Enter to generate</span>
-      </label>
-      <textarea id="prompt" placeholder="a cinematic golden cube spinning in light"></textarea>
+  <!-- Prompt bar -->
+  <section class="prompt-bar">
+    <div class="input-row">
+      <input id="prompt" type="text" placeholder="a cosmic kaleidoscope of nebula stars" />
+      <button id="submit" class="primary">Generate</button>
+    </div>
+    <div class="examples">
+      <span class="example-chip">a cosmic kaleidoscope of nebula stars</span>
+      <span class="example-chip">neon synthwave crystal flythrough</span>
+      <span class="example-chip">golden chrome torus spiral</span>
+      <span class="example-chip">deep ocean bioluminescent array</span>
+      <span class="example-chip">lava volcanic shard storm</span>
+      <span class="example-chip">candy rainbow pastel rings</span>
+      <span class="example-chip">psychedelic monkey faces in dreamscape</span>
+    </div>
+  </section>
 
-      <div class="examples">
-        <span class="example-chip">a cinematic golden cube spinning in light</span>
-        <span class="example-chip">a purple sphere orbiting a blue planet</span>
-        <span class="example-chip">a chrome torus rotating against dark cosmos</span>
-        <span class="example-chip">a red pyramid glowing in a spotlight</span>
-        <span class="example-chip">a shiny silver monkey under warm light</span>
+  <!-- Director panel -->
+  <section class="director-panel">
+    <details id="director-details">
+      <summary>
+        <span class="director-label">🎬 Director Controls</span>
+        <span class="director-hint" id="director-hint">AI Direct — Claude interprets everything</span>
+      </summary>
+      <div class="director-body">
+        <label class="ai-direct-row">
+          <input type="checkbox" id="ai-direct" checked>
+          <span>AI Direct — let Claude interpret shot/lighting/mood</span>
+        </label>
+
+        <div id="manual-controls" class="manual-controls locked">
+          <div class="control-grid">
+            <label class="control-field">
+              <span class="field-label">Shot type</span>
+              <select id="shot">
+                <option value="medium">Medium</option>
+                <option value="close-up">Close-up</option>
+                <option value="wide">Wide</option>
+                <option value="establishing">Establishing</option>
+                <option value="aerial">Aerial</option>
+                <option value="POV">POV</option>
+                <option value="dolly_in">Dolly in</option>
+                <option value="dolly_out">Dolly out</option>
+                <option value="orbit">Orbit</option>
+              </select>
+            </label>
+            <label class="control-field">
+              <span class="field-label">Lighting</span>
+              <select id="lighting">
+                <option value="cinematic">Cinematic</option>
+                <option value="soft">Soft ambient</option>
+                <option value="neon_glow">Neon glow</option>
+                <option value="moody">Moody low-key</option>
+                <option value="high_key">High-key bright</option>
+                <option value="horror">Horror red</option>
+                <option value="sunset">Sunset warm</option>
+                <option value="cosmic">Cosmic dark</option>
+              </select>
+            </label>
+            <label class="control-field">
+              <span class="field-label">Mood</span>
+              <select id="mood">
+                <option value="dreamy">Dreamy</option>
+                <option value="psychedelic">Psychedelic</option>
+                <option value="dramatic">Dramatic</option>
+                <option value="intense">Intense</option>
+                <option value="serene">Serene</option>
+                <option value="surreal">Surreal</option>
+                <option value="mystical">Mystical</option>
+                <option value="chaotic">Chaotic</option>
+              </select>
+            </label>
+            <label class="control-field">
+              <span class="field-label">Pace</span>
+              <select id="pace">
+                <option value="slow">Slow</option>
+                <option value="medium" selected>Medium</option>
+                <option value="fast">Fast</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="photo-upload">
+          <div class="photo-label">📷 Or generate a scene from a photo</div>
+          <div id="drop-zone" class="drop-zone">
+            <input type="file" id="photo-input" accept="image/*" hidden>
+            <div class="drop-inner">
+              <span class="drop-icon">🖼️</span>
+              <span class="drop-text">Drag a photo here or click to upload</span>
+            </div>
+            <img id="photo-preview" class="photo-preview hidden" alt="preview">
+          </div>
+          <button id="photo-generate" class="secondary hidden">Generate scene from photo</button>
+        </div>
+
+        <!-- Director AI questions dialog -->
+        <div id="direct-questions" class="direct-questions hidden">
+          <div class="qa-header">Claude needs a bit more direction:</div>
+          <div id="qa-body"></div>
+          <div class="qa-actions">
+            <button id="qa-submit" class="primary">Use these answers</button>
+            <button id="qa-skip" class="secondary">Skip (AI picks)</button>
+          </div>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <!-- Viewer -->
+  <section class="viewer">
+    <div id="canvas-holder">
+      <canvas id="gl"></canvas>
+      <div class="viewer-hint" id="viewer-hint">drag to orbit · scroll to zoom · move mouse for parallax</div>
+      <div class="fps-counter" id="fps"></div>
+    </div>
+
+    <div class="viewer-controls">
+      <div class="control-group">
+        <button class="mode-btn active" data-mode="orbit">🖱️ Orbit</button>
+        <button class="mode-btn" data-mode="tour">🎞️ Flythrough</button>
+        <button class="mode-btn" data-mode="kaleido">🌀 Kaleidoscope</button>
+      </div>
+      <div class="control-group">
+        <button id="reset-view" class="secondary">Reset view</button>
+        <button id="add-to-storyboard" class="secondary">+ Add to film</button>
+        <a id="download-mp4" class="secondary hidden" download>⬇ MP4</a>
       </div>
     </div>
 
-    <div class="submit-row">
-      <button id="submit" class="primary">Generate Video</button>
-      <span class="render-stats">~60–90s · 48 frames · 512×512</span>
-    </div>
-
-    <div id="progress" class="progress">
+    <div id="progress" class="render-progress">
       <div class="progress-label">
-        <span id="progress-label">Starting...</span>
-        <span class="progress-elapsed" id="progress-elapsed">0.0s</span>
+        <span id="progress-label">Rendering MP4 in background…</span>
+        <span id="progress-elapsed">0.0s</span>
       </div>
       <div class="progress-bar-container">
-        <div class="progress-bar" id="progress-bar"></div>
+        <div id="progress-bar" class="progress-bar"></div>
       </div>
     </div>
 
     <div id="error-box" class="error-box"></div>
   </section>
 
-  <section id="video-section" class="card video-section">
-    <div class="video-wrapper">
-      <video id="video" controls autoplay loop muted playsinline></video>
+  <!-- Storyboard -->
+  <section class="storyboard">
+    <div class="storyboard-header">
+      <h2>🎞️ Storyboard</h2>
+      <div class="storyboard-actions">
+        <button id="compile-film" class="primary" disabled>🎬 Compile Film</button>
+        <button id="clear-storyboard" class="secondary">Clear</button>
+      </div>
     </div>
-    <div class="meta-row">
-      <span id="video-meta"></span>
-      <span>MP4 · H.264</span>
+    <div id="storyboard-list" class="storyboard-list">
+      <div class="storyboard-empty">Empty. Generate scenes and click "+ Add to film" to build a sequence.</div>
     </div>
-    <details class="scene-graph">
-      <summary>View scene graph JSON</summary>
+    <div id="film-progress" class="film-progress"></div>
+    <div id="film-result" class="film-result hidden">
+      <video id="final-film" controls></video>
+      <div class="film-meta">
+        <span id="film-meta-label"></span>
+        <a id="film-download" class="secondary" download>⬇ Download</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Scene graph details -->
+  <section class="card details">
+    <details>
+      <summary>
+        <span class="summary-label">Scene graph</span>
+        <span class="summary-count" id="scene-count">—</span>
+      </summary>
       <pre id="scene-graph"></pre>
     </details>
   </section>
@@ -74,16 +215,14 @@
   <footer class="footer">
     <p>
       <a href="https://github.com/prosalesleague-ClinIQ/3d-video-gen" target="_blank" rel="noopener">GitHub</a>
-      &nbsp;·&nbsp;
-      <a href="https://github.com/prosalesleague-ClinIQ/3d-video-gen#readme" target="_blank" rel="noopener">Architecture</a>
+      ·
+      <a href="https://huggingface.co/spaces/prosalesleague/3d-video-gen" target="_blank" rel="noopener">Backend</a>
     </p>
-    <p style="margin-top:8px">
-      Backend renders with Blender Cycles on CPU. First request wakes the container (~30s cold start).
-    </p>
+    <p class="tiny">Three.js interactive · Blender Cycles MP4 · Claude API scene interpretation</p>
   </footer>
 </div>
 
 <script src="/config.js"></script>
-<script src="/app.js"></script>
+<script type="module" src="/app.js"></script>
 </body>
 </html>
