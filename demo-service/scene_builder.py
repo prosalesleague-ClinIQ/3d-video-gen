@@ -327,17 +327,36 @@ def _try_llm(prompt: str) -> dict[str, Any] | None:
         return None
 
 
-def build_scene_graph(prompt: str) -> dict[str, Any]:
-    """Prompt → rich scene graph dict."""
+QUALITY_PRESETS = {
+    "low":   {"resolution": [640, 360],   "samples": 32,  "frame_count": 48},
+    "med":   {"resolution": [1280, 720],  "samples": 64,  "frame_count": 72},
+    "high":  {"resolution": [1920, 1080], "samples": 128, "frame_count": 96},
+    "ultra": {"resolution": [2560, 1440], "samples": 256, "frame_count": 120},
+}
+
+
+def build_scene_graph(prompt: str, quality: str = "high", hdri: str = "studio") -> dict[str, Any]:
+    """Prompt → rich scene graph dict.
+
+    Extended schema keys:
+      quality: "low"|"med"|"high"|"ultra" — maps to resolution/samples/frames
+      hdri:    "studio"|"sunset"|"night"|"forest" — selects HDRI env map
+      render_scale: float — frontend render-scale hint (unused by Blender)
+      parallax:  bool   — request parallax camera rig (future)
+    """
     prompt = (prompt or "").strip() or "a cosmic kaleidoscope of light"
     graph = _try_llm(prompt)
     if graph is None:
         graph = _deterministic_fallback(prompt)
 
+    preset = QUALITY_PRESETS.get(quality, QUALITY_PRESETS["high"])
+
     graph["prompt"] = prompt
     graph["seed"] = _seed_from_prompt(prompt)
-    graph["frame_count"] = graph.get("frame_count", 72)
+    graph["frame_count"] = graph.get("frame_count", preset["frame_count"])
     graph["fps"] = graph.get("fps", 24)
-    graph["resolution"] = graph.get("resolution", [640, 640])
-    graph["samples"] = graph.get("samples", 16)
+    graph["resolution"] = graph.get("resolution", preset["resolution"])
+    graph["samples"] = graph.get("samples", preset["samples"])
+    graph["quality"] = quality
+    graph["hdri"] = hdri
     return graph

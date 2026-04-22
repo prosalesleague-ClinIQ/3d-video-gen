@@ -13,8 +13,24 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
+import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
+
+// Realism + POV-parallax upgrade modules
+import { HeadTracker, applyOffAxisProjection } from "./head_tracking.js";
+import { KaleidoEffect } from "./kaleido_shader.js";
+import { mountSplatViewer, SAMPLE_SPLATS } from "./splat_viewer.js";
+import { applyPreset, loadPreset, savePreset } from "./quality.js";
 
 RectAreaLightUniformsLib.init();
+
+// HDRI URLs (Poly Haven CC0, 1k)
+const HDRI_URLS = {
+  studio: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_08_1k.hdr",
+  sunset: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/kiara_1_dawn_1k.hdr",
+  night:  "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/moonless_golf_1k.hdr",
+  forest: "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/symmetrical_garden_02_1k.hdr",
+};
 
 const BACKEND = window.__BACKEND_URL__ || "";
 const POLL_INTERVAL_MS = 3000;
@@ -111,10 +127,19 @@ function resize() {
   const w = els.holder.clientWidth;
   const h = els.holder.clientHeight;
   renderer.setSize(w, h, false);
-  composer.setSize(w, h);
-  bloomPass.setSize(w, h);
+  if (composer) composer.setSize(w, h);
+  if (bloomPass) bloomPass.setSize(w, h);
+  if (smaaPass) smaaPass.setSize(w, h);
+  if (kaleidoEffect) kaleidoEffect.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  if (!povActive) {
+    baseProjectionMatrix = camera.projectionMatrix.clone();
+  }
+  // Re-apply preset so renderScale stays consistent.
+  if (renderer && composer && typeof loadPreset === "function") {
+    try { applyPreset(loadPreset(), { renderer, composer, keyLight }); } catch (_) {}
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -127,6 +152,18 @@ let activeLights = [];
 let ambientLight = null;
 let currentSceneMeta = null;  // {render_id, prompt, scene_graph}
 let currentPhotoData = null;  // base64 when photo uploaded
+
+// Realism + POV upgrade state
+let keyLight = null;
+let rimLight = null;
+let pmrem = null;
+let currentHDRI = "studio";
+let smaaPass = null;
+let kaleidoEffect = null;
+let splatHandle = null;
+let headTracker = null;
+let povActive = false;
+let baseProjectionMatrix = null;
 
 const state = {
   mode: "orbit",
@@ -258,6 +295,11 @@ function buildScene(graph) {
     mesh.userData.def = objDef;
     mesh.userData.isKaleidoCandidate = /^(ring|spiral)_/.test(objDef.name || "");
 
+    // Stream 4: enable shadows. Planes/ground only receive, others cast+receive.
+    const isGround = (objDef.asset === "plane") || /^(ground|floor)/.test(objDef.name || "");
+    mesh.castShadow = !isGround;
+    mesh.receiveShadow = true;
+
     scene.add(mesh);
     dynamicObjects.push(mesh);
   });
@@ -280,17 +322,42 @@ function buildScene(graph) {
 }
 
 function enableKaleido(segments = 6) {
+  // Try the shader-based kaleido first (realistic, chromatic dispersion).
+  if (!kaleidoEffect && composer && window.__renderBackend !== "webgpu") {
+    try {
+      kaleidoEffect = new KaleidoEffect({
+        segments,
+        width: els.holder.clientWidth,
+        height: els.holder.clientHeight,
+      });
+      // Insert before OutputPass if we can find it; else append.
+      const passes = composer.passes;
+      const outIdx = passes.findIndex(p => p.constructor && p.constructor.name === "OutputPass");
+      if (outIdx > 0) {
+        composer.insertPass(kaleidoEffect.pass, outIdx);
+      } else {
+        composer.addPass(kaleidoEffect.pass);
+      }
+      window.__kaleidoEffect = kaleidoEffect;
+      return;
+    } catch (e) {
+      console.warn("[kaleido] shader path unavailable, using clones", e);
+      kaleidoEffect = null;
+    }
+  }
+
+  // Clone-based fallback (original implementation).
   kaleidoClones.forEach(c => { scene.remove(c); disposeMesh(c); });
   kaleidoClones = [];
-
   const candidates = dynamicObjects.filter(m => m.userData.isKaleidoCandidate);
   if (candidates.length === 0) return;
-
   for (let seg = 1; seg < segments; seg++) {
     const angle = (seg / segments) * Math.PI * 2;
     candidates.forEach(original => {
       const clone = new THREE.Mesh(original.geometry, original.material.clone());
       clone.userData.baseClone = { original, angle };
+      clone.castShadow = original.castShadow;
+      clone.receiveShadow = original.receiveShadow;
       scene.add(clone);
       kaleidoClones.push(clone);
     });
@@ -298,11 +365,22 @@ function enableKaleido(segments = 6) {
 }
 
 function disableKaleido() {
+  if (kaleidoEffect && composer) {
+    try { composer.removePass(kaleidoEffect.pass); } catch (_) {}
+    kaleidoEffect.dispose?.();
+    kaleidoEffect = null;
+    window.__kaleidoEffect = null;
+  }
   kaleidoClones.forEach(c => { scene.remove(c); disposeMesh(c); });
   kaleidoClones = [];
 }
 
 function updateKaleidoClones() {
+  if (kaleidoEffect) {
+    const rot = kaleidoEffect.uniforms.get("rotation");
+    if (rot) rot.value = clock.getElapsedTime() * 0.15;
+    return;
+  }
   kaleidoClones.forEach(clone => {
     const { original, angle } = clone.userData.baseClone;
     const x = original.position.x * Math.cos(angle) - original.position.z * Math.sin(angle);
@@ -313,6 +391,18 @@ function updateKaleidoClones() {
     clone.scale.copy(original.scale);
   });
 }
+
+// UI hook for Stream 10 scale slider to adjust segment count live.
+window.setKaleidoSegments = (n) => {
+  state.kaleidoSegments = Math.max(2, Math.min(32, n | 0));
+  if (kaleidoEffect) {
+    const u = kaleidoEffect.uniforms.get("segments");
+    if (u) u.value = state.kaleidoSegments;
+  } else if (state.mode === "kaleido") {
+    disableKaleido();
+    enableKaleido(state.kaleidoSegments);
+  }
+};
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 
@@ -347,10 +437,16 @@ function resetView() {
   controls.update();
 }
 
-function setMode(mode) {
+async function setMode(mode) {
   state.mode = mode;
   els.modeBtns.forEach(btn => btn.classList.toggle("active", btn.dataset.mode === mode));
   els.viewerHint.style.opacity = mode === "orbit" ? "0.8" : "0.4";
+
+  // Dispose splat viewer when leaving splat mode.
+  if (mode !== "splat" && splatHandle) {
+    try { splatHandle.dispose(); } catch (_) {}
+    splatHandle = null;
+  }
 
   if (mode === "kaleido") {
     enableKaleido(state.kaleidoSegments);
@@ -364,6 +460,19 @@ function setMode(mode) {
   if (mode === "tour") {
     controls.enabled = false;
     state.tourT = 0;
+  } else if (mode === "splat") {
+    controls.autoRotate = false;
+    controls.enabled = true;
+    try {
+      splatHandle = await mountSplatViewer({
+        scene, camera, renderer, controls,
+        url: SAMPLE_SPLATS.garden,
+      });
+    } catch (e) {
+      console.warn("[splat] mount failed", e);
+      showError("Splat viewer failed to load. Staying in orbit mode.");
+      state.mode = "orbit";
+    }
   } else if (mode !== "kaleido") {
     controls.enabled = true;
     resetView();
@@ -394,9 +503,9 @@ function tickFlythrough(dt) {
   camera.lookAt(lookAt[0], lookAt[1], lookAt[2]);
 }
 
-// Parallax
+// Parallax (fallback — disabled when POV head-tracking is active)
 els.holder.addEventListener("pointermove", (e) => {
-  if (state.mode === "tour") return;
+  if (povActive || state.mode === "tour") return;
   const rect = els.holder.getBoundingClientRect();
   const nx = (e.clientX - rect.left) / rect.width;
   const ny = (e.clientY - rect.top) / rect.height;
@@ -409,7 +518,7 @@ els.holder.addEventListener("pointerleave", () => {
 
 if (window.DeviceOrientationEvent) {
   window.addEventListener("deviceorientation", (e) => {
-    if (state.mode === "tour" || !e.beta || !e.gamma) return;
+    if (povActive || state.mode === "tour" || !e.beta || !e.gamma) return;
     state.parallax.tx = Math.max(-1, Math.min(1, e.gamma / 30));
     state.parallax.ty = Math.max(-1, Math.min(1, (e.beta - 45) / 30));
   });
@@ -443,15 +552,32 @@ function animate() {
 
   if (state.mode === "tour") {
     tickFlythrough(dt);
-  } else {
+  } else if (!povActive) {
     state.parallax.x += (state.parallax.tx - state.parallax.x) * 0.08;
     state.parallax.y += (state.parallax.ty - state.parallax.y) * 0.08;
     camera.position.x += state.parallax.x * 0.15;
     camera.position.y -= state.parallax.y * 0.15;
     controls.update();
+  } else {
+    controls.update();
   }
 
-  composer.render();
+  // Stream 1: POV head-tracking → off-axis frustum parallax.
+  if (povActive && headTracker) {
+    const pose = headTracker.getHeadPose();
+    if (pose && pose.confidence > 0.4) {
+      applyOffAxisProjection(camera, pose, { w: 0.5, h: 0.28 });
+    }
+  } else if (baseProjectionMatrix) {
+    camera.projectionMatrix.copy(baseProjectionMatrix);
+    camera.projectionMatrixInverse.copy(baseProjectionMatrix).invert();
+  }
+
+  if (state.mode === "splat" && splatHandle) {
+    splatHandle.tick();
+  } else {
+    composer.render();
+  }
 
   const fps = 1 / (dt || 0.016);
   fpsSamples.push(fps);
@@ -1072,6 +1198,67 @@ els.modeBtns.forEach(btn => {
 els.resetView.addEventListener("click", resetView);
 
 // ---------------------------------------------------------------------------
+// Stream 10: toolbar wiring (quality / HDRI / scale / kaleido intensity / POV)
+// ---------------------------------------------------------------------------
+function wireToolbar() {
+  const qpill = document.getElementById("quality-pill");
+  if (qpill) qpill.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-q]"); if (!btn) return;
+    qpill.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b === btn ? "true" : "false"));
+    window.setQuality?.(btn.dataset.q);
+  });
+  const hpill = document.getElementById("hdri-pill");
+  if (hpill) hpill.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-h]"); if (!btn) return;
+    hpill.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b === btn ? "true" : "false"));
+    window.loadHDRI?.(btn.dataset.h);
+  });
+  const scale = document.getElementById("scene-scale");
+  const scaleVal = document.getElementById("scene-scale-val");
+  if (scale) scale.addEventListener("input", () => {
+    const v = parseFloat(scale.value);
+    if (scaleVal) scaleVal.textContent = v.toFixed(2) + "×";
+    const root = (window.__sceneRoot) || (typeof scene !== "undefined" ? scene : null);
+    if (root) root.scale.setScalar(v);
+  });
+  const kal = document.getElementById("kaleido-intensity");
+  const kalVal = document.getElementById("kaleido-intensity-val");
+  if (kal) kal.addEventListener("input", () => {
+    const v = parseInt(kal.value, 10);
+    if (kalVal) kalVal.textContent = v + "-fold";
+    window.setKaleidoSegments?.(v);
+  });
+  const pov = document.getElementById("btn-pov");
+  const povStatus = document.getElementById("pov-status");
+  if (pov) pov.addEventListener("click", async () => {
+    if (povActive) {
+      window.disableHeadTracking?.();
+      pov.classList.remove("active");
+      if (povStatus) povStatus.textContent = "";
+      return;
+    }
+    if (povStatus) povStatus.textContent = "Requesting camera…";
+    const res = await window.enableHeadTracking?.();
+    if (res?.ok) {
+      pov.classList.add("active");
+      if (povStatus) povStatus.textContent = "Tracking active — move your head.";
+    } else {
+      if (povStatus) povStatus.textContent = "Failed: " + (res?.error || "unknown");
+    }
+  });
+  const calib = document.getElementById("pov-calibrate");
+  if (calib) calib.addEventListener("click", () => {
+    if (headTracker) headTracker.calibrate();
+    if (povStatus) povStatus.textContent = "Calibrated.";
+  });
+}
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", wireToolbar);
+} else {
+  wireToolbar();
+}
+
+// ---------------------------------------------------------------------------
 // Init (async — awaits WebGPURenderer.init() before first frame)
 // ---------------------------------------------------------------------------
 (async () => {
@@ -1079,8 +1266,11 @@ els.resetView.addEventListener("click", resetView);
   renderer = created.renderer;
   window.__renderBackend = created.backend;
 
-  // DPR cap lifted to 3 (Stream 7 will drive this from a quality preset)
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 3));
+  // Stream 4: enable VSM shadow maps for softer, realistic shadows.
+  try {
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.VSMShadowMap;
+  } catch (_) { /* WebGPU path may differ — ignore silently */ }
 
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x060612);
@@ -1109,10 +1299,83 @@ els.resetView.addEventListener("click", resetView);
     0.6, 0.5, 0.1,
   );
   composer.addPass(bloomPass);
+  // Stream 3 (scoped): SMAA for sharper edges + better anti-aliasing.
+  smaaPass = new SMAAPass(els.holder.clientWidth, els.holder.clientHeight);
+  composer.addPass(smaaPass);
   composer.addPass(new OutputPass());
+
+  // Stream 4: HDRI IBL via PMREMGenerator + Poly Haven CC0 HDRIs.
+  pmrem = new THREE.PMREMGenerator(renderer);
+  try { pmrem.compileEquirectangularShader?.(); } catch (_) {}
+  async function loadHDRI(name) {
+    const url = HDRI_URLS[name] || HDRI_URLS.studio;
+    try {
+      const tex = await new RGBELoader().loadAsync(url);
+      const env = pmrem.fromEquirectangular(tex).texture;
+      tex.dispose();
+      if (scene.environment && scene.environment !== env) scene.environment.dispose?.();
+      scene.environment = env;
+      scene.environmentIntensity = 1.0;
+      currentHDRI = name;
+    } catch (e) {
+      console.warn("[hdri] failed to load", name, e);
+    }
+  }
+  window.loadHDRI = loadHDRI;
+  loadHDRI("studio");
+
+  // Stream 4: permanent shadow-casting key + rim lights (survive scene rebuilds).
+  keyLight = new THREE.DirectionalLight(0xfff1e0, 2.2);
+  keyLight.position.set(8, 12, 6);
+  keyLight.castShadow = true;
+  keyLight.shadow.mapSize.set(2048, 2048);
+  keyLight.shadow.camera.near = 0.5;
+  keyLight.shadow.camera.far = 60;
+  keyLight.shadow.camera.left = -15; keyLight.shadow.camera.right = 15;
+  keyLight.shadow.camera.top = 15; keyLight.shadow.camera.bottom = -15;
+  keyLight.shadow.bias = -0.0005;
+  keyLight.shadow.radius = 8;
+  scene.add(keyLight);
+  window.__keyLight = keyLight;
+
+  rimLight = new THREE.DirectionalLight(0x89b7ff, 0.9);
+  rimLight.position.set(-6, 4, -8);
+  scene.add(rimLight);
 
   window.addEventListener("resize", resize);
   resize();
+
+  // Stream 7: apply saved quality preset after composer + keyLight exist.
+  applyPreset(loadPreset(), { renderer, composer, keyLight });
+
+  // Stream 1: expose setQuality for UI; expose head-track toggle.
+  window.setQuality = (name) => {
+    savePreset(name);
+    applyPreset(name, { renderer, composer, keyLight });
+  };
+  window.enableHeadTracking = async () => {
+    if (povActive) return { ok: true };
+    if (!headTracker) headTracker = new HeadTracker();
+    try {
+      await headTracker.init();
+      headTracker.start();
+      povActive = true;
+      baseProjectionMatrix = camera.projectionMatrix.clone();
+      localStorage.setItem("povEnabled", "1");
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  };
+  window.disableHeadTracking = () => {
+    if (headTracker) { headTracker.stop(); headTracker = null; }
+    povActive = false;
+    localStorage.setItem("povEnabled", "0");
+    if (baseProjectionMatrix) {
+      camera.projectionMatrix.copy(baseProjectionMatrix);
+      camera.projectionMatrixInverse.copy(baseProjectionMatrix).invert();
+    }
+  };
 
   // Kick off everything that depends on renderer/scene/camera/controls.
   buildScene(makeDefaultScene());

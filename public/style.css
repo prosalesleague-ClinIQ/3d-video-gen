@@ -652,3 +652,16 @@ select:focus, select:hover {
   .control-grid { grid-template-columns: 1fr; }
   .scene-card { flex: 0 0 140px; }
 }
+
+/* Stream 4/7/10: realism upgrade UI */
+.toolbar-row { display:flex; align-items:center; gap:10px; padding:6px 10px; }
+.toolbar-row .toolbar-label { font-size:11px; letter-spacing:0.08em; text-transform:uppercase; color:#aaa; min-width:58px; }
+#scene-scale, #kaleido-intensity { flex:1; max-width:220px; }
+#scene-scale-val, #kaleido-intensity-val { font-size:11px; color:#ccc; min-width:52px; text-align:right; }
+.quality-pill, .hdri-pill { display:inline-flex; gap:4px; }
+.quality-pill button, .hdri-pill button { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#ddd; font-size:11px; padding:4px 10px; border-radius:6px; cursor:pointer; }
+.quality-pill button[aria-pressed=true], .hdri-pill button[aria-pressed=true] { background:#5b2f9f; border-color:#7a42c0; color:#fff; }
+.quality-pill button:hover, .hdri-pill button:hover { background:rgba(255,255,255,0.10); }
+#btn-pov.active { background:#5b2f9f; border-color:#7a42c0; color:#fff; }
+.pov-calibration { display:flex; align-items:center; gap:8px; padding:6px 10px; font-size:12px; color:#bbb; }
+.pov-status { flex:1; color:#89b7ff; }

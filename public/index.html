@@ -160,11 +160,45 @@
         <button class="mode-btn active" data-mode="orbit">🖱️ Orbit</button>
         <button class="mode-btn" data-mode="tour">🎞️ Flythrough</button>
         <button class="mode-btn" data-mode="kaleido">🌀 Kaleidoscope</button>
+        <button class="mode-btn" data-mode="splat">💠 Splat</button>
       </div>
       <div class="control-group">
+        <button id="btn-pov" class="secondary">📷 POV Tracking</button>
         <button id="reset-view" class="secondary">Reset view</button>
         <button id="add-to-storyboard" class="secondary">+ Add to film</button>
         <a id="download-mp4" class="secondary hidden" download>⬇ MP4</a>
+      </div>
+      <div class="toolbar-row">
+        <span class="toolbar-label">Quality</span>
+        <div class="quality-pill" id="quality-pill">
+          <button data-q="low">Low</button>
+          <button data-q="med">Med</button>
+          <button data-q="high" aria-pressed="true">High</button>
+          <button data-q="ultra">Ultra</button>
+        </div>
+      </div>
+      <div class="toolbar-row">
+        <span class="toolbar-label">HDRI</span>
+        <div class="hdri-pill" id="hdri-pill">
+          <button data-h="studio" aria-pressed="true">Studio</button>
+          <button data-h="sunset">Sunset</button>
+          <button data-h="night">Night</button>
+          <button data-h="forest">Forest</button>
+        </div>
+      </div>
+      <div class="toolbar-row">
+        <label class="toolbar-label" for="scene-scale">Scale</label>
+        <input type="range" id="scene-scale" min="0.5" max="4" step="0.05" value="1" />
+        <span id="scene-scale-val">1.00×</span>
+      </div>
+      <div class="toolbar-row">
+        <label class="toolbar-label" for="kaleido-intensity">Kaleido</label>
+        <input type="range" id="kaleido-intensity" min="3" max="24" step="1" value="8" />
+        <span id="kaleido-intensity-val">8-fold</span>
+      </div>
+      <div id="pov-calibration" class="pov-calibration">
+        <span id="pov-status" class="pov-status"></span>
+        <button id="pov-calibrate" class="secondary">Calibrate</button>
       </div>
     </div>
 

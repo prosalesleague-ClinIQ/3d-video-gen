@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-5")
 
+SUPPORTED_FORMATS = ("ply", "splat")
+
 VISION_SYSTEM_PROMPT = """You are a 3D scene designer. Describe the provided image as a 3D scene specification.
 
 Output ONLY this JSON (no prose, no code fences):
@@ -272,3 +274,18 @@ def image_to_scene_graph(
     graph["_source"] = "image"
     graph["_direction"] = direction or {}
     return graph
+
+
+def image_to_scene(
+    image_bytes: bytes,
+    direction: dict | None = None,
+    prompt_hint: str = "",
+) -> dict:
+    """Bytes-in wrapper around image_to_scene_graph.
+
+    Base64-encodes the raw image bytes and delegates to the existing
+    image_to_scene_graph(image_input: str, ...) entry point. Returns the
+    deterministic scene graph dict.
+    """
+    b64 = base64.b64encode(image_bytes).decode("ascii") if image_bytes else ""
+    return image_to_scene_graph(b64, direction=direction, prompt_hint=prompt_hint)

@@ -7,6 +7,7 @@ Endpoints:
   POST /scene-from-image    → photo → scene graph
   POST /generate            → scene graph + async MP4 render
   POST /generate-from-image → photo → scene graph + async MP4 render
+  POST /image-to-3d         → TRELLIS image → splat/ply URL (fallback: scene graph)
   POST /compile-film        → stitch multiple MP4s into a single film
   GET  /status/{id}         → poll render progress
   GET  /film-status/{id}    → poll film compile progress
@@ -14,6 +15,7 @@ Endpoints:
   GET  /film/{id}           → stream compiled film
   GET  /health              → health check
 """
+import base64
 import json
 import logging
 import os
@@ -32,9 +34,21 @@ from pydantic import BaseModel, Field
 
 from scene_builder import build_scene_graph
 from video_compose import compose
-from image_to_scene import image_to_scene_graph
+from image_to_scene import SUPPORTED_FORMATS, image_to_scene, image_to_scene_graph
 from director_ai import interpret_prompt
 from film_compiler import compile_film
+
+# Optional: httpx for TRELLIS proxy. Degrades gracefully if not installed.
+try:
+    import httpx
+except ImportError:
+    httpx = None
+
+# Optional: TRELLIS HF Space for image → 3D Gaussian Splat / PLY
+# TRELLIS_SPACE_URL=https://<user>-trellis.hf.space/api/predict
+# HF_TOKEN=<hf access token for gated spaces>
+TRELLIS_SPACE_URL = os.environ.get("TRELLIS_SPACE_URL", "").strip()
+HF_TOKEN = os.environ.get("HF_TOKEN", "").strip()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -330,7 +344,67 @@ def root():
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "blender_bin": BLENDER_BIN,
+        "cycles_device": os.environ.get("CYCLES_DEVICE", "CPU"),
+        "trellis_enabled": bool(TRELLIS_SPACE_URL),
+    }
+
+
+@app.post("/image-to-3d")
+async def image_to_3d(payload: dict):
+    """
+    Body: {image_b64, mode="splat", format="ply"|"splat"}
+    Returns: {asset_url, format, source:"trellis", ms} on success, or
+             {scene_graph, source:"fallback-scene-graph", ms} on failure.
+    """
+    started = time.time()
+    image_b64 = payload.get("image_b64")
+    fmt = payload.get("format", "ply")
+    if not image_b64:
+        raise HTTPException(400, "image_b64 required")
+    if fmt not in SUPPORTED_FORMATS:
+        raise HTTPException(400, f"format must be one of {SUPPORTED_FORMATS}")
+
+    if TRELLIS_SPACE_URL and httpx is not None:
+        try:
+            async with httpx.AsyncClient(timeout=180) as client:
+                headers = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
+                resp = await client.post(
+                    TRELLIS_SPACE_URL,
+                    json={"data": [image_b64, fmt]},
+                    headers=headers,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                asset = (data.get("data") or [None])[0]
+                if isinstance(asset, dict):
+                    asset_url = asset.get("url") or asset.get("name")
+                else:
+                    asset_url = asset
+                if not asset_url:
+                    raise RuntimeError("TRELLIS returned no asset url")
+                return {
+                    "asset_url": asset_url,
+                    "format": fmt,
+                    "source": "trellis",
+                    "ms": int((time.time() - started) * 1000),
+                }
+        except Exception as e:
+            logger.warning("[image-to-3d] TRELLIS proxy failed: %s; falling back", e)
+
+    # Fallback: deterministic scene graph from image.
+    try:
+        img_bytes = base64.b64decode(image_b64)
+        graph = image_to_scene(img_bytes)
+        return {
+            "scene_graph": graph,
+            "source": "fallback-scene-graph",
+            "ms": int((time.time() - started) * 1000),
+        }
+    except Exception as e:
+        raise HTTPException(500, f"image-to-3d failed: {e}")
 
 
 @app.post("/direct", response_model=DirectResponse)
