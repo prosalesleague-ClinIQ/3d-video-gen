@@ -95,14 +95,15 @@ const els = {
 let renderer, scene, camera, controls, composer, bloomPass;
 
 async function createRenderer(canvas) {
-  const webgpuAvailable = typeof navigator !== "undefined" && "gpu" in navigator;
-  if (webgpuAvailable) {
+  // NOTE: forcing WebGL2 for now. The post-FX pipeline (EffectComposer from
+  // three/addons, SMAA, bloom) and pmrem IBL require a WebGL2 context.
+  // Opt-in WebGPU via `?webgpu=1` for experimentation; post-FX will be skipped.
+  const wantWebGPU = typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).has("webgpu") &&
+    typeof navigator !== "undefined" && "gpu" in navigator;
+  if (wantWebGPU) {
     try {
-      const r = new WebGPURenderer({
-        canvas,
-        antialias: true,
-        powerPreference: "high-performance",
-      });
+      const r = new WebGPURenderer({ canvas, antialias: true, powerPreference: "high-performance" });
       await r.init();
       r.outputColorSpace = SRGBColorSpace;
       r.toneMapping = ACESFilmicToneMapping;
@@ -112,11 +113,7 @@ async function createRenderer(canvas) {
       console.warn("WebGPU init failed, falling back to WebGL2", e);
     }
   }
-  const r = new WebGLRenderer({
-    canvas,
-    antialias: true,
-    powerPreference: "high-performance",
-  });
+  const r = new WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
   r.outputColorSpace = SRGBColorSpace;
   r.toneMapping = ACESFilmicToneMapping;
   r.toneMappingExposure = 1.1;
@@ -1262,6 +1259,7 @@ if (document.readyState === "loading") {
 // Init (async — awaits WebGPURenderer.init() before first frame)
 // ---------------------------------------------------------------------------
 (async () => {
+try {
   const created = await createRenderer(els.canvas);
   renderer = created.renderer;
   window.__renderBackend = created.backend;
@@ -1383,4 +1381,10 @@ if (document.readyState === "loading") {
   loadStoryboard();
   probeBackend();
   animate();
+} catch (err) {
+  console.error("[init] fatal error — page will not render", err);
+  try { showError("Init failed: " + (err?.message || err)); } catch (_) {}
+  // Still wire the Director panel + prompt input so user can at least type.
+  try { applyAiDirectLock(); } catch (_) {}
+}
 })();
