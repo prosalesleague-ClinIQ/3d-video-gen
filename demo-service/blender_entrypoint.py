@@ -22,25 +22,34 @@ def _reset(bpy) -> None:
 
 
 def _add_primitive(bpy, asset: str, location, scale):
-    funcs = {
-        "cube": bpy.ops.mesh.primitive_cube_add,
-        "sphere": bpy.ops.mesh.primitive_uv_sphere_add,
-        "cylinder": bpy.ops.mesh.primitive_cylinder_add,
-        "cone": bpy.ops.mesh.primitive_cone_add,
-        "plane": bpy.ops.mesh.primitive_plane_add,
-        "torus": bpy.ops.mesh.primitive_torus_add,
-        "monkey": bpy.ops.mesh.primitive_monkey_add,
-    }
-    fn = funcs.get(asset, funcs["cube"])
-    if asset == "torus":
-        fn(location=tuple(location), major_radius=1.2, minor_radius=0.4)
+    """Each primitive op has different kwargs in Blender 3.6.
+    cube/plane → size; sphere/cylinder/cone → radius; torus → major/minor; monkey → none."""
+    loc = tuple(location)
+    if asset == "cube":
+        bpy.ops.mesh.primitive_cube_add(size=2, location=loc)
+    elif asset == "sphere":
+        bpy.ops.mesh.primitive_uv_sphere_add(radius=1, location=loc, segments=32, ring_count=16)
+    elif asset == "cylinder":
+        bpy.ops.mesh.primitive_cylinder_add(radius=1, depth=2, location=loc, vertices=32)
+    elif asset == "cone":
+        bpy.ops.mesh.primitive_cone_add(radius1=1, radius2=0, depth=2, location=loc, vertices=32)
+    elif asset == "plane":
+        bpy.ops.mesh.primitive_plane_add(size=2, location=loc)
+    elif asset == "torus":
+        bpy.ops.mesh.primitive_torus_add(location=loc, major_radius=1.2, minor_radius=0.4,
+                                          major_segments=32, minor_segments=16)
     elif asset == "monkey":
-        fn(location=tuple(location))
+        bpy.ops.mesh.primitive_monkey_add(location=loc)
     else:
-        fn(size=2, location=tuple(location))
+        bpy.ops.mesh.primitive_cube_add(size=2, location=loc)
 
     obj = bpy.context.active_object
     obj.scale = tuple(scale)
+
+    # Smooth shading for round primitives
+    if asset in ("sphere", "cylinder", "cone", "torus", "monkey"):
+        bpy.ops.object.shade_smooth()
+
     return obj
 
 
