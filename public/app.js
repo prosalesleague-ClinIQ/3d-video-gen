@@ -1,6 +1,12 @@
 // Kaleidoscope studio — Three.js viewer + Director panel + photo-to-3D + storyboard film compiler.
 
 import * as THREE from "three";
+import {
+  WebGPURenderer,
+  WebGLRenderer,
+  ACESFilmicToneMapping,
+  SRGBColorSpace,
+} from "three/webgpu";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RectAreaLightUniformsLib } from "three/addons/lights/RectAreaLightUniformsLib.js";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
@@ -68,46 +74,38 @@ const els = {
 };
 
 // ---------------------------------------------------------------------------
-// Renderer + scene setup
+// Renderer + scene setup (async — WebGPURenderer.init() is a Promise)
 // ---------------------------------------------------------------------------
-const renderer = new THREE.WebGLRenderer({
-  canvas: els.canvas,
-  antialias: true,
-  powerPreference: "high-performance",
-});
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.1;
-renderer.outputColorSpace = THREE.SRGBColorSpace;
+let renderer, scene, camera, controls, composer, bloomPass;
 
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x060612);
-scene.fog = new THREE.FogExp2(0x060612, 0.02);
-
-const camera = new THREE.PerspectiveCamera(
-  50,
-  els.holder.clientWidth / els.holder.clientHeight,
-  0.1, 200,
-);
-camera.position.set(10, 8, 10);
-camera.lookAt(0, 0, 0);
-
-const controls = new OrbitControls(camera, els.canvas);
-controls.enableDamping = true;
-controls.dampingFactor = 0.08;
-controls.minDistance = 2;
-controls.maxDistance = 40;
-controls.autoRotate = false;
-controls.autoRotateSpeed = 0.5;
-
-const composer = new EffectComposer(renderer);
-composer.addPass(new RenderPass(scene, camera));
-const bloomPass = new UnrealBloomPass(
-  new THREE.Vector2(els.holder.clientWidth, els.holder.clientHeight),
-  0.6, 0.5, 0.1,
-);
-composer.addPass(bloomPass);
-composer.addPass(new OutputPass());
+async function createRenderer(canvas) {
+  const webgpuAvailable = typeof navigator !== "undefined" && "gpu" in navigator;
+  if (webgpuAvailable) {
+    try {
+      const r = new WebGPURenderer({
+        canvas,
+        antialias: true,
+        powerPreference: "high-performance",
+      });
+      await r.init();
+      r.outputColorSpace = SRGBColorSpace;
+      r.toneMapping = ACESFilmicToneMapping;
+      r.toneMappingExposure = 1.1;
+      return { renderer: r, backend: "webgpu" };
+    } catch (e) {
+      console.warn("WebGPU init failed, falling back to WebGL2", e);
+    }
+  }
+  const r = new WebGLRenderer({
+    canvas,
+    antialias: true,
+    powerPreference: "high-performance",
+  });
+  r.outputColorSpace = SRGBColorSpace;
+  r.toneMapping = ACESFilmicToneMapping;
+  r.toneMappingExposure = 1.1;
+  return { renderer: r, backend: "webgl2" };
+}
 
 function resize() {
   const w = els.holder.clientWidth;
@@ -118,8 +116,6 @@ function resize() {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
-window.addEventListener("resize", resize);
-resize();
 
 // ---------------------------------------------------------------------------
 // State
@@ -465,7 +461,6 @@ function animate() {
 
   requestAnimationFrame(animate);
 }
-animate();
 
 // ---------------------------------------------------------------------------
 // Default demo scene
@@ -1077,9 +1072,52 @@ els.modeBtns.forEach(btn => {
 els.resetView.addEventListener("click", resetView);
 
 // ---------------------------------------------------------------------------
-// Init
+// Init (async — awaits WebGPURenderer.init() before first frame)
 // ---------------------------------------------------------------------------
-buildScene(makeDefaultScene());
-applyAiDirectLock();
-loadStoryboard();
-probeBackend();
+(async () => {
+  const created = await createRenderer(els.canvas);
+  renderer = created.renderer;
+  window.__renderBackend = created.backend;
+
+  // DPR cap lifted to 3 (Stream 7 will drive this from a quality preset)
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 3));
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x060612);
+  scene.fog = new THREE.FogExp2(0x060612, 0.02);
+
+  camera = new THREE.PerspectiveCamera(
+    50,
+    els.holder.clientWidth / els.holder.clientHeight,
+    0.1, 200,
+  );
+  camera.position.set(10, 8, 10);
+  camera.lookAt(0, 0, 0);
+
+  controls = new OrbitControls(camera, els.canvas);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.minDistance = 2;
+  controls.maxDistance = 40;
+  controls.autoRotate = false;
+  controls.autoRotateSpeed = 0.5;
+
+  composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  bloomPass = new UnrealBloomPass(
+    new THREE.Vector2(els.holder.clientWidth, els.holder.clientHeight),
+    0.6, 0.5, 0.1,
+  );
+  composer.addPass(bloomPass);
+  composer.addPass(new OutputPass());
+
+  window.addEventListener("resize", resize);
+  resize();
+
+  // Kick off everything that depends on renderer/scene/camera/controls.
+  buildScene(makeDefaultScene());
+  applyAiDirectLock();
+  loadStoryboard();
+  probeBackend();
+  animate();
+})();
