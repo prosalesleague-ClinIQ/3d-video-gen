@@ -1,5 +1,7 @@
 (function () {
   const BACKEND = window.__BACKEND_URL__ || "";
+  const POLL_INTERVAL_MS = 3000;
+  const POLL_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
 
   const els = {
     prompt: document.getElementById("prompt"),
@@ -26,7 +28,6 @@
     "a green cylinder tumbling through space",
   ];
 
-  // Wire example chips
   els.exampleChips.forEach((chip) => {
     chip.addEventListener("click", () => {
       els.prompt.value = chip.textContent.trim();
@@ -34,7 +35,6 @@
     });
   });
 
-  // Check backend status on load
   async function probeBackend() {
     setStatus("checking", "Connecting to render backend...");
     if (!BACKEND) {
@@ -43,7 +43,7 @@
     }
     try {
       const t0 = Date.now();
-      const res = await fetch(`${BACKEND}/health`, { method: "GET" });
+      const res = await fetch(`${BACKEND}/health`);
       const latency = Date.now() - t0;
       if (res.ok) {
         setStatus("ok", `Backend ready · ${latency}ms`);
@@ -60,46 +60,29 @@
     els.statusPill.querySelector(".label").textContent = text;
   }
 
-  // Progress animation during render
-  let progressTimer = null;
+  let elapsedTimer = null;
   let renderStartTs = 0;
 
-  function startProgress() {
+  function showProgress(pct, stageText) {
     els.progress.classList.add("active");
-    els.progressBar.style.width = "5%";
-    renderStartTs = Date.now();
-
-    const steps = [
-      { at: 2000,  pct: 15, text: "Generating scene graph..." },
-      { at: 6000,  pct: 30, text: "Launching Blender..." },
-      { at: 12000, pct: 45, text: "Rendering frames..." },
-      { at: 30000, pct: 65, text: "Rendering frames (CPU takes ~1–2 min)..." },
-      { at: 60000, pct: 80, text: "Almost there — stitching video..." },
-      { at: 90000, pct: 90, text: "Finalizing MP4..." },
-    ];
-
-    progressTimer = setInterval(() => {
-      const elapsed = Date.now() - renderStartTs;
-      els.progressElapsed.textContent = (elapsed / 1000).toFixed(1) + "s";
-      for (const s of steps) {
-        if (elapsed > s.at) {
-          els.progressBar.style.width = s.pct + "%";
-          els.progressLabel.textContent = s.text;
-        }
-      }
-    }, 250);
+    els.progressBar.style.width = Math.max(pct, 3) + "%";
+    els.progressLabel.textContent = stageText || "Working...";
   }
 
-  function stopProgress(success) {
-    if (progressTimer) clearInterval(progressTimer);
-    progressTimer = null;
-    if (success) {
-      els.progressBar.style.width = "100%";
-      els.progressLabel.textContent = "Done!";
-      setTimeout(() => els.progress.classList.remove("active"), 800);
-    } else {
-      els.progress.classList.remove("active");
-    }
+  function startElapsed() {
+    renderStartTs = Date.now();
+    elapsedTimer = setInterval(() => {
+      els.progressElapsed.textContent = ((Date.now() - renderStartTs) / 1000).toFixed(1) + "s";
+    }, 100);
+  }
+
+  function stopElapsed() {
+    if (elapsedTimer) clearInterval(elapsedTimer);
+    elapsedTimer = null;
+  }
+
+  function hideProgress() {
+    els.progress.classList.remove("active");
   }
 
   function showError(msg) {
@@ -111,52 +94,99 @@
     els.errorBox.classList.remove("visible");
   }
 
+  function sleep(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
+  function prettyStage(stage) {
+    const map = {
+      queued: "Queued...",
+      building_scene: "Building scene graph...",
+      scene_ready: "Scene ready, launching Blender...",
+      rendering_frames: "Starting render...",
+      composing_video: "Stitching video with ffmpeg...",
+      complete: "Done!",
+      error: "Failed",
+    };
+    if (map[stage]) return map[stage];
+    if (stage && stage.startsWith("rendering ")) {
+      return `Rendering ${stage.replace("rendering ", "")}...`;
+    }
+    return stage || "Working...";
+  }
+
+  async function submitJob(prompt) {
+    const res = await fetch(`${BACKEND}/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`POST /generate failed: ${res.status} ${text.slice(0, 200)}`);
+    }
+    return res.json();
+  }
+
+  async function pollStatus(renderId) {
+    const deadline = Date.now() + POLL_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      await sleep(POLL_INTERVAL_MS);
+      let data;
+      try {
+        const res = await fetch(`${BACKEND}/status/${renderId}`);
+        if (!res.ok) {
+          // Skip transient error, keep polling
+          continue;
+        }
+        data = await res.json();
+      } catch (e) {
+        continue;
+      }
+
+      showProgress(data.progress || 0, prettyStage(data.stage));
+
+      if (data.status === "complete") return data;
+      if (data.status === "failed") throw new Error(data.error || "Render failed on server");
+    }
+    throw new Error("Render timed out after 10 minutes");
+  }
+
   async function generate(prompt) {
     clearError();
     els.videoSection.classList.remove("visible");
     els.submit.disabled = true;
     els.submit.textContent = "Rendering...";
-    startProgress();
+    showProgress(3, "Submitting...");
+    startElapsed();
 
     try {
-      const res = await fetch(`${BACKEND}/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
-      });
+      const queued = await submitJob(prompt);
+      showProgress(5, "Queued — waking renderer...");
 
-      if (!res.ok) {
-        let detail = "";
-        try {
-          const err = await res.json();
-          detail = err.detail || err.error || JSON.stringify(err);
-        } catch {
-          detail = await res.text();
-        }
-        throw new Error(`Server error ${res.status}: ${detail.slice(0, 200)}`);
-      }
+      const done = await pollStatus(queued.render_id);
 
-      const data = await res.json();
-
-      const videoUrl = data.video_url.startsWith("http")
-        ? data.video_url
-        : `${BACKEND}${data.video_url}`;
+      const videoUrl = done.video_url.startsWith("http")
+        ? done.video_url
+        : `${BACKEND}${done.video_url}`;
 
       els.video.src = videoUrl;
       els.video.load();
       els.videoMeta.textContent =
-        `${data.frames} frames · ${(data.render_ms / 1000).toFixed(1)}s render`;
-      els.sceneGraph.textContent = JSON.stringify(data.scene_graph, null, 2);
+        `${done.frames} frames · ${(done.render_ms / 1000).toFixed(1)}s render`;
+      els.sceneGraph.textContent = JSON.stringify(done.scene_graph, null, 2);
       els.videoSection.classList.add("visible");
 
-      stopProgress(true);
-      setStatus("ok", `Rendered in ${(data.render_ms / 1000).toFixed(1)}s`);
+      showProgress(100, "Done!");
+      setTimeout(hideProgress, 800);
+      setStatus("ok", `Rendered in ${(done.render_ms / 1000).toFixed(1)}s`);
     } catch (e) {
       console.error(e);
-      stopProgress(false);
-      showError(e.message || "Something went wrong. The backend may be cold-starting — try again in 30 seconds.");
+      hideProgress();
+      showError(e.message || "Something went wrong. Try again in 30 seconds.");
       setStatus("err", "Render failed");
     } finally {
+      stopElapsed();
       els.submit.disabled = false;
       els.submit.textContent = "Generate Video";
     }
@@ -177,7 +207,6 @@
     }
   });
 
-  // Seed random example
   els.prompt.placeholder = EXAMPLES[Math.floor(Math.random() * EXAMPLES.length)];
 
   probeBackend();

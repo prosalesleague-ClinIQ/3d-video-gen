@@ -1,5 +1,9 @@
 """
-FastAPI service: POST /generate → scene graph → Blender render → MP4.
+FastAPI service: async render pattern to avoid proxy timeouts.
+
+  POST /generate           → returns {render_id, status: "pending"} immediately
+  GET  /status/{render_id} → poll for progress
+  GET  /video/{render_id}  → stream MP4 when ready
 """
 import json
 import logging
@@ -10,10 +14,11 @@ import sys
 import time
 import uuid
 from pathlib import Path
+from threading import Lock, Thread
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from scene_builder import build_scene_graph
@@ -29,16 +34,19 @@ logger = logging.getLogger("demo-service")
 BLENDER_BIN = os.environ.get("BLENDER_BIN", shutil.which("blender") or "/usr/local/bin/blender")
 VIDEO_DIR = Path(os.environ.get("VIDEO_DIR", "/tmp/videos"))
 FRAMES_DIR = Path(os.environ.get("FRAMES_DIR", "/tmp/frames"))
-MAX_CONCURRENT = int(os.environ.get("MAX_CONCURRENT", "1"))
 RENDER_TIMEOUT = int(os.environ.get("RENDER_TIMEOUT", "600"))
 
 VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 FRAMES_DIR.mkdir(parents=True, exist_ok=True)
 
+# In-memory job registry (single-worker container, no need for Redis)
+_jobs: dict[str, dict] = {}
+_jobs_lock = Lock()
+
 app = FastAPI(
     title="3D Video Gen — Live Demo",
-    description="Prompt → 3D Blender render → MP4",
-    version="1.0.0",
+    description="Prompt → 3D Blender render → MP4 (async polling)",
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -56,19 +64,136 @@ class GenerateRequest(BaseModel):
 
 class GenerateResponse(BaseModel):
     render_id: str
-    video_url: str
-    scene_graph: dict
-    render_ms: float
-    frames: int
+    status: str = "pending"
+
+
+class StatusResponse(BaseModel):
+    render_id: str
+    status: str
+    progress: int = 0
+    stage: str = ""
+    video_url: str | None = None
+    scene_graph: dict | None = None
+    render_ms: float | None = None
+    frames: int | None = None
+    error: str | None = None
+
+
+def _set_job(render_id: str, **kwargs) -> None:
+    with _jobs_lock:
+        if render_id not in _jobs:
+            _jobs[render_id] = {"render_id": render_id, "status": "pending", "progress": 0, "stage": "queued"}
+        _jobs[render_id].update(kwargs)
+
+
+def _get_job(render_id: str) -> dict | None:
+    with _jobs_lock:
+        return _jobs.get(render_id)
+
+
+def _run_render(render_id: str, prompt: str) -> None:
+    t0 = time.monotonic()
+    try:
+        _set_job(render_id, status="running", progress=5, stage="building_scene")
+
+        # 1. Scene graph
+        graph = build_scene_graph(prompt)
+        _set_job(render_id, scene_graph=graph, progress=15, stage="scene_ready")
+        logger.info("[%s] scene graph: %d objects, asset=%s",
+                    render_id, len(graph.get("objects", [])),
+                    graph.get("objects", [{}])[0].get("asset"))
+
+        # 2. Write scene graph JSON
+        scene_path = FRAMES_DIR / f"{render_id}.json"
+        with open(scene_path, "w") as f:
+            json.dump(graph, f)
+
+        out_frames = FRAMES_DIR / render_id
+        out_frames.mkdir(parents=True, exist_ok=True)
+
+        # 3. Launch Blender
+        _set_job(render_id, progress=20, stage="rendering_frames")
+        if not BLENDER_BIN or not os.path.exists(BLENDER_BIN):
+            raise RuntimeError(f"Blender not found at {BLENDER_BIN}")
+
+        cmd = [
+            BLENDER_BIN, "--background",
+            "--python", str(Path(__file__).parent / "blender_entrypoint.py"),
+            "--", str(scene_path), str(out_frames),
+        ]
+        logger.info("[%s] blender: %s", render_id, " ".join(cmd))
+
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+
+        frame_count = int(graph.get("frame_count", 48))
+        rendered = 0
+
+        for line in process.stdout:
+            line = line.rstrip()
+            if line.startswith("RENDERED frame"):
+                rendered += 1
+                # 20% → 85% maps to frame progress
+                pct = 20 + int((rendered / frame_count) * 65)
+                _set_job(
+                    render_id,
+                    progress=pct,
+                    stage=f"rendering {rendered}/{frame_count}",
+                )
+            elif "ERROR" in line:
+                logger.warning("[%s] blender: %s", render_id, line)
+
+        rc = process.wait(timeout=RENDER_TIMEOUT)
+        if rc != 0:
+            raise RuntimeError(f"Blender exited with code {rc}")
+
+        # 4. Compose MP4
+        _set_job(render_id, progress=88, stage="composing_video")
+        mp4_path = VIDEO_DIR / f"{render_id}.mp4"
+        ok = compose(str(out_frames), str(mp4_path), fps=int(graph.get("fps", 24)))
+        if not ok:
+            raise RuntimeError("ffmpeg composition failed")
+
+        # 5. Cleanup
+        try:
+            shutil.rmtree(out_frames)
+            scene_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+        elapsed_ms = (time.monotonic() - t0) * 1000.0
+        _set_job(
+            render_id,
+            status="complete",
+            progress=100,
+            stage="complete",
+            video_url=f"/video/{render_id}",
+            render_ms=elapsed_ms,
+            frames=frame_count,
+        )
+        logger.info("[%s] complete in %.1fs", render_id, elapsed_ms / 1000)
+
+    except Exception as exc:
+        logger.exception("[%s] render failed", render_id)
+        _set_job(render_id, status="failed", stage="error", error=str(exc))
 
 
 @app.get("/")
 def root():
+    with _jobs_lock:
+        active = sum(1 for j in _jobs.values() if j["status"] in ("pending", "running"))
     return {
         "service": "3d-video-gen",
         "status": "ok",
         "blender": BLENDER_BIN,
         "blender_exists": os.path.exists(BLENDER_BIN) if BLENDER_BIN else False,
+        "active_jobs": active,
+        "total_jobs": len(_jobs),
     }
 
 
@@ -78,92 +203,28 @@ def health():
 
 
 @app.post("/generate", response_model=GenerateResponse)
-def generate(req: GenerateRequest, request: Request):
-    t0 = time.monotonic()
+def generate(req: GenerateRequest):
     render_id = uuid.uuid4().hex[:12]
-    logger.info("[%s] prompt: %r", render_id, req.prompt)
+    logger.info("[%s] queueing prompt: %r", render_id, req.prompt)
 
-    # 1. Build scene graph
-    graph = build_scene_graph(req.prompt)
-    logger.info("[%s] scene graph: %d objects, asset=%s",
-                 render_id, len(graph.get("objects", [])),
-                 graph.get("objects", [{}])[0].get("asset"))
+    _set_job(render_id, status="pending", progress=0, stage="queued", prompt=req.prompt)
 
-    # 2. Write scene graph to disk
-    scene_path = FRAMES_DIR / f"{render_id}.json"
-    with open(scene_path, "w") as f:
-        json.dump(graph, f)
+    # Thread, not async task — blocking subprocess shouldn't block event loop
+    Thread(target=_run_render, args=(render_id, req.prompt), daemon=True).start()
 
-    out_frames = FRAMES_DIR / render_id
-    out_frames.mkdir(parents=True, exist_ok=True)
+    return GenerateResponse(render_id=render_id, status="pending")
 
-    # 3. Run Blender
-    if not BLENDER_BIN or not os.path.exists(BLENDER_BIN):
-        raise HTTPException(status_code=500, detail=f"Blender not found at {BLENDER_BIN}")
 
-    blender_cmd = [
-        BLENDER_BIN,
-        "--background",
-        "--python", str(Path(__file__).parent / "blender_entrypoint.py"),
-        "--",
-        str(scene_path),
-        str(out_frames),
-    ]
-    logger.info("[%s] running blender...", render_id)
-
-    try:
-        result = subprocess.run(
-            blender_cmd,
-            capture_output=True,
-            text=True,
-            timeout=RENDER_TIMEOUT,
-        )
-    except subprocess.TimeoutExpired:
-        logger.error("[%s] blender timed out", render_id)
-        raise HTTPException(status_code=504, detail="Render timed out")
-
-    if result.returncode != 0:
-        logger.error("[%s] blender failed: %s", render_id, result.stderr[-800:])
-        raise HTTPException(
-            status_code=500,
-            detail=f"Blender rendering failed: {result.stderr[-300:]}",
-        )
-
-    # Count rendered frames
-    frame_files = sorted(out_frames.glob("frame_*.png"))
-    if not frame_files:
-        raise HTTPException(status_code=500, detail="No frames produced")
-
-    logger.info("[%s] rendered %d frames", render_id, len(frame_files))
-
-    # 4. Compose MP4
-    mp4_path = VIDEO_DIR / f"{render_id}.mp4"
-    ok = compose(str(out_frames), str(mp4_path), fps=int(graph.get("fps", 24)))
-    if not ok:
-        raise HTTPException(status_code=500, detail="ffmpeg composition failed")
-
-    # Cleanup frames
-    try:
-        shutil.rmtree(out_frames)
-        scene_path.unlink(missing_ok=True)
-    except Exception:
-        pass
-
-    elapsed_ms = (time.monotonic() - t0) * 1000.0
-    logger.info("[%s] done in %.0fms", render_id, elapsed_ms)
-
-    return GenerateResponse(
-        render_id=render_id,
-        video_url=f"/video/{render_id}",
-        scene_graph=graph,
-        render_ms=elapsed_ms,
-        frames=len(frame_files),
-    )
+@app.get("/status/{render_id}", response_model=StatusResponse)
+def status(render_id: str):
+    job = _get_job(render_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Unknown render_id")
+    return StatusResponse(**job)
 
 
 @app.get("/video/{render_id}")
 def get_video(render_id: str):
-    # Sanitize
     if not render_id.replace("-", "").isalnum():
         raise HTTPException(status_code=400, detail="Invalid render_id")
     mp4_path = VIDEO_DIR / f"{render_id}.mp4"
