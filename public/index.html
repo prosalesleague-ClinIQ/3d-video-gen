@@ -49,6 +49,15 @@
       <span class="dot"></span>
       <span class="label">Loading…</span>
     </div>
+    <!-- Live tracker status: which trackers are running + current FPS.
+         Updated ~1×/sec by app.js#startTrackerStatusPolling. Click to focus
+         the POV pill (which lets you toggle Face/Hand/Gaze). -->
+    <div class="tracker-status-pill" id="tracker-status" title="Live tracker status — click to scroll to POV picker" hidden>
+      <span class="ts-icon" data-tr="face" data-on="0">👤</span>
+      <span class="ts-icon" data-tr="hand" data-on="0">✋</span>
+      <span class="ts-icon" data-tr="gaze" data-on="0">👁</span>
+      <span class="ts-fps" id="ts-fps">— fps</span>
+    </div>
   </header>
 
   <!-- Prompt bar -->

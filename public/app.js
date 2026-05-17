@@ -584,8 +584,36 @@ if (window.DeviceOrientationEvent) {
 const clock = new THREE.Clock();
 let fpsSamples = [];
 
+// FPS tracking + tracker-status pill polling. We update once per second so
+// the DOM mutation doesn't itself drag down frame rate. Numbers are
+// computed against an EMA-smoothed dt to avoid the jitter that a raw
+// 1/dt readout would show.
+let _fpsEma = 60;
+function _updateTrackerStatusPill() {
+  const el = document.getElementById("tracker-status");
+  if (!el) return;
+  el.hidden = false;
+  const fpsEl = document.getElementById("ts-fps");
+  if (fpsEl) fpsEl.textContent = `${Math.round(_fpsEma)} fps`;
+  const setIcon = (tr, on) => {
+    const i = el.querySelector(`[data-tr="${tr}"]`);
+    if (!i) return;
+    i.dataset.on = on ? "1" : "0";
+  };
+  const faceOn = (povSource === "face" || povSource === "gaze") && !!headTracker;
+  const gazeOn = povSource === "gaze" && !!headTracker;
+  const handOn = povSource === "hand" && !!handTracker;
+  setIcon("face", faceOn);
+  setIcon("hand", handOn);
+  setIcon("gaze", gazeOn);
+}
+setInterval(_updateTrackerStatusPill, 1000);
+
 function animate() {
   const dt = clock.getDelta();
+  // 1€-like EMA on FPS — α=0.1 gives a half-second smoothing window.
+  const instantFps = dt > 0 ? 1 / dt : 60;
+  _fpsEma = _fpsEma * 0.9 + instantFps * 0.1;
 
   state.animT += dt / state.animDuration;
   if (state.animT >= 1) state.animT = 0;

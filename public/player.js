@@ -18,6 +18,7 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { ProjectionMode } from "./projection_mapping.js";
 import { STYLES, STYLE_ORDER } from "./player_styles.js";
 import { StereoOutput, STEREO_MODES } from "./player_stereo.js";
+import { applyCalibrationToElement, onCalibrationChange } from "./calibration.js";
 
 const BACKEND = window.__BACKEND_URL__ || "";
 
@@ -191,6 +192,14 @@ if (initialId) {
   });
 }
 if (hideUi) document.body.classList.add("ui-hidden");
+
+// --- Projection calibration carry-over ---------------------------------
+// Whatever the user calibrated in the Mapper (4-corner Maptastic drag) is
+// auto-saved to localStorage["maptastic.layers"]. Player reads it once at
+// load and listens for live changes via the storage event — flip back to
+// the Mapper tab, drag a corner, and the Player snaps to it in real time.
+applyCalibrationToElement(els.canvas, { elementId: "gl" });
+onCalibrationChange(() => applyCalibrationToElement(els.canvas, { elementId: "gl" }));
 
 // --- Controls -----------------------------------------------------------
 els.btnLoad?.addEventListener("click", () => {

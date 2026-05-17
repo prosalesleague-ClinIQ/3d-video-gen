@@ -4,6 +4,29 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta http-equiv="Permissions-Policy" content="camera=(self), microphone=()" />
+<!-- Security hardening per .audit/1-security/H6:
+     This page exposes a one-click `getUserMedia({video:true})` test on the
+     live origin. A malicious site could iframe this and trick the user into
+     granting camera access without context.
+     1. `noindex,nofollow` keeps it out of search results.
+     2. The inline frame-buster below redirects out of any frame.
+     3. The X-Frame-Options + CSP frame-ancestors set in vercel.json are the
+        actual defense; this is belt-and-braces in case CSP doesn't reach a
+        particular embed (e.g. served from a CDN edge without the header). -->
+<meta name="robots" content="noindex, nofollow" />
+<script>
+  // Frame-buster — if loaded inside an iframe, redirect the TOP window
+  // back to this page in the address bar. Wrapped in try/catch because
+  // accessing `window.top.location` from a cross-origin parent throws.
+  try {
+    if (window.top !== window.self) {
+      window.top.location = window.self.location;
+    }
+  } catch (_) {
+    // Cross-origin parent blocked access — refuse to render the page body.
+    document.documentElement.style.display = "none";
+  }
+</script>
 <title>Camera Diagnostics — 3D Video Gen</title>
 <style>
   body { margin: 0; padding: 28px 32px; font-family: ui-sans-serif, system-ui; background: #0a0a14; color: #eaeaf6; }

@@ -88,6 +88,23 @@ for (const [page, ids] of Object.entries(REQUIRED_IDS)) {
   ok(/data-act="calibrate"/.test(html), 'Mapper toolbar has [data-act="calibrate"] (🎯 Calibrate)');
 }
 
+// Studio tracker-status pill exists with all 3 tracker icons.
+{
+  const html = await readHtml("index.html");
+  ok(/id=["']tracker-status["']/.test(html), "Studio has #tracker-status pill");
+  for (const tr of ["face", "hand", "gaze"]) {
+    ok(new RegExp(`data-tr=["']${tr}["']`).test(html), `tracker-status pill has [data-tr="${tr}"] icon`);
+  }
+  ok(/id=["']ts-fps["']/.test(html), "tracker-status pill has live FPS readout (#ts-fps)");
+}
+
+// cam-diag.html security hardening (audit item H6).
+{
+  const html = await readHtml("cam-diag.html");
+  ok(/<meta name=["']robots["'] content=["']noindex/.test(html), "cam-diag.html is noindex,nofollow");
+  ok(/window\.top !== window\.self/.test(html), "cam-diag.html has frame-buster JS");
+}
+
 // CSP from vercel.json should at least not be undefined in deploy config.
 {
   const vercel = await readFile(join(ROOT, "vercel.json"), "utf8");

@@ -85,6 +85,7 @@ fi
 run node tests/test_perspt.mjs
 run node tests/test_hand_filters.mjs
 run node tests/test_gaze_tracking.mjs
+run node tests/test_calibration.mjs
 run node tests/test_imports.mjs
 run node tests/test_html_smoke.mjs
 
