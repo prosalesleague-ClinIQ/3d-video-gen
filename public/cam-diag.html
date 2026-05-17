@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta http-equiv="Permissions-Policy" content="camera=(self), microphone=()" />
+<title>Camera Diagnostics — 3D Video Gen</title>
+<style>
+  body { margin: 0; padding: 28px 32px; font-family: ui-sans-serif, system-ui; background: #0a0a14; color: #eaeaf6; }
+  h1 { color: #5cf; margin-top: 0; }
+  .row { padding: 12px 16px; margin: 10px 0; border-radius: 8px; background: rgba(255,255,255,0.04); border: 1px solid rgba(140, 220, 255, 0.18); }
+  .ok  { border-color: #5fb886; background: rgba(95, 184, 134, 0.10); }
+  .bad { border-color: #f08080; background: rgba(240, 128, 128, 0.10); }
+  .pending { border-color: #ffcf66; background: rgba(255, 207, 102, 0.10); }
+  .label { color: #aac; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .value { font-family: ui-monospace, monospace; margin-top: 4px; color: #e8e8ff; word-break: break-all; }
+  button { padding: 10px 20px; font-size: 14px; background: linear-gradient(180deg, #8b5ac8 0%, #5b2f9f 100%); color: #fff; border: 1px solid rgba(220, 180, 255, 0.7); border-radius: 8px; cursor: pointer; margin-right: 8px; margin-top: 6px; }
+  button:hover { filter: brightness(1.15); }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  video { width: 100%; max-width: 480px; height: auto; background: #000; border-radius: 8px; margin-top: 8px; display: block; }
+  pre { white-space: pre-wrap; font-size: 12px; }
+  a { color: #5cf; }
+  details { margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<h1>📷 Camera Diagnostics</h1>
+<p>This page tests every step of webcam access on this origin. Use it to figure out why <a href="mapper.html">Mapper</a> isn't getting your camera.</p>
+
+<div class="row" id="r-protocol"><div class="label">1. Protocol (must be HTTPS)</div><div class="value" id="protocol">…</div></div>
+<div class="row" id="r-mediaDevices"><div class="label">2. navigator.mediaDevices</div><div class="value" id="mediaDevices">…</div></div>
+<div class="row" id="r-perm"><div class="label">3. navigator.permissions camera state</div><div class="value" id="perm">…</div></div>
+<div class="row" id="r-devs"><div class="label">4. enumerateDevices (cameras)</div><div class="value" id="devs">…</div></div>
+<div class="row pending" id="r-gum">
+  <div class="label">5. getUserMedia test</div>
+  <div class="value" id="gum">Click the button to test.</div>
+  <button id="btn-test">▶ Run getUserMedia test</button>
+  <button id="btn-stop" disabled>⏹ Stop stream</button>
+  <video id="preview" autoplay playsinline muted></video>
+</div>
+
+<div class="row">
+  <div class="label">Useful links</div>
+  <div class="value">
+    <a href="chrome://settings/content/camera" target="_blank">chrome://settings/content/camera</a> (Chrome only)<br>
+    <a href="mapper.html">Mapper</a> · <a href="player.html">Player</a> · <a href="index.html">Studio</a>
+  </div>
+</div>
+
+<details>
+  <summary>What each row means</summary>
+  <pre>
+1. Protocol — getUserMedia requires HTTPS. http:// or file:// won't work.
+2. mediaDevices — must exist on `navigator`. Some old browsers / iframes don't expose it.
+3. Permission state — "granted" = ready · "prompt" = will show dialog · "denied" = blocked.
+4. enumerateDevices — must list ≥1 device with kind "videoinput".
+5. getUserMedia — actually requests stream. If permission was prompt, this fires the dialog.
+   If permission denied, this throws NotAllowedError. If no device, NotFoundError.
+   If in use, NotReadableError.
+  </pre>
+</details>
+
+<script>
+const $ = (id) => document.getElementById(id);
+function setRow(rowId, kind, text) {
+  const row = $("r-" + rowId);
+  row.classList.remove("ok", "bad", "pending");
+  row.classList.add(kind);
+  $(rowId).textContent = text;
+}
+
+(async () => {
+  // 1. Protocol
+  if (location.protocol === "https:" || location.hostname === "localhost") {
+    setRow("protocol", "ok", `${location.protocol}//${location.host} — OK`);
+  } else {
+    setRow("protocol", "bad", `${location.protocol}//${location.host} — getUserMedia requires HTTPS!`);
+  }
+
+  // 2. mediaDevices
+  if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === "function") {
+    setRow("mediaDevices", "ok", "navigator.mediaDevices.getUserMedia available");
+  } else {
+    setRow("mediaDevices", "bad", "navigator.mediaDevices unavailable — browser doesn't support it or page is in a sandboxed iframe");
+    return;
+  }
+
+  // 3. Permissions API
+  try {
+    const status = await navigator.permissions?.query?.({ name: "camera" });
+    if (!status) {
+      setRow("perm", "pending", "Permissions API not supported (will discover via getUserMedia)");
+    } else {
+      const kind = status.state === "granted" ? "ok" : status.state === "denied" ? "bad" : "pending";
+      setRow("perm", kind, `state = "${status.state}"`);
+      status.addEventListener?.("change", () => setRow("perm", status.state === "granted" ? "ok" : status.state === "denied" ? "bad" : "pending", `state = "${status.state}" (changed)`));
+    }
+  } catch (e) {
+    setRow("perm", "pending", "Permissions API threw: " + e.message);
+  }
+
+  // 4. enumerate devices (labels are empty until permission granted; that's expected)
+  try {
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    const cams = devs.filter((d) => d.kind === "videoinput");
+    if (cams.length === 0) {
+      setRow("devs", "bad", "No video-input devices found.");
+    } else {
+      setRow("devs", "ok", cams.map((c, i) => `[${i}] ${c.label || "(label hidden until permission granted)"} — id=${c.deviceId.slice(0, 12)}…`).join("\n"));
+    }
+  } catch (e) {
+    setRow("devs", "bad", "enumerateDevices threw: " + e.message);
+  }
+})();
+
+let stream = null;
+$("btn-test").addEventListener("click", async () => {
+  $("btn-test").disabled = true;
+  setRow("gum", "pending", "Calling getUserMedia({video: true})…");
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false });
+    $("preview").srcObject = stream;
+    const tracks = stream.getVideoTracks().map((t) => `${t.label} (state: ${t.readyState})`);
+    setRow("gum", "ok", "✓ Stream acquired. Tracks: " + tracks.join("; "));
+    $("btn-stop").disabled = false;
+  } catch (e) {
+    setRow("gum", "bad", `✗ ${e.name}: ${e.message}`);
+    $("btn-test").disabled = false;
+  }
+});
+$("btn-stop").addEventListener("click", () => {
+  stream?.getTracks?.().forEach((t) => t.stop());
+  $("preview").srcObject = null;
+  stream = null;
+  $("btn-stop").disabled = true;
+  $("btn-test").disabled = false;
+  setRow("gum", "pending", "Stream stopped.");
+});
+</script>
+
+</body>
+</html>

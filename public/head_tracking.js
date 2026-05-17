@@ -2,6 +2,11 @@
 // Drives a "window into a world" effect: moving your head left/right/forward
 // shifts the camera frustum (not just yaw), so near objects slide opposite
 // to head motion and far objects barely move.
+//
+// Camera stream is now shared via ./webcam.js so HandTracker can run on the
+// same frame without a second getUserMedia prompt.
+
+import { getSharedWebcam, releaseConsumer } from "./webcam.js";
 
 const MEDIAPIPE_MODULE = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/vision_bundle.mjs";
 const MEDIAPIPE_WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm";
@@ -29,29 +34,15 @@ export class HeadTracker {
     }
     const { FaceLandmarker, FilesetResolver } = vision;
 
-    // 2. Camera permission + video element
+    // 2. Webcam — shared across face + hand trackers. webcam.js handles
+    //    getUserMedia + the hidden <video> element + permission errors.
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480, facingMode: "user" },
-        audio: false,
-      });
+      const { video, stream } = await getSharedWebcam("head-tracker");
+      this.video = video;
+      this.stream = stream;
     } catch (e) {
       throw new Error("camera_denied: " + e.message);
     }
-    this.video = document.createElement("video");
-    this.video.style.position = "fixed";
-    this.video.style.left = "-9999px";
-    this.video.style.width = "1px";
-    this.video.style.height = "1px";
-    this.video.muted = true;
-    this.video.playsInline = true;
-    this.video.autoplay = true;
-    this.video.srcObject = this.stream;
-    document.body.appendChild(this.video);
-    await new Promise((resolve) => {
-      this.video.addEventListener("loadeddata", resolve, { once: true });
-    });
-    await this.video.play();
 
     // 3. Load model
     try {
@@ -84,7 +75,12 @@ export class HeadTracker {
             // Column-major 4x4: translation at indices 12,13,14 (in cm → convert to meters)
             const tx = d[12] / 100;
             const ty = d[13] / 100;
-            const tz = Math.abs(d[14]) / 100 || 0.5;
+            // INVERT the raw Z: bigger headPose.z should mean "closer to screen"
+            // so that lean-in produces a wider frustum and objects pop out.
+            // MediaPipe reports face-to-camera distance in cm; invert + offset
+            // so proximity maps to higher numbers.
+            const rawZ = Math.abs(d[14]) / 100 || 0.5;
+            const tz = Math.max(0.1, 1.2 - rawZ);
             const a = this.emaAlpha;
             this.pose.x = a * (tx - this.calibrationOffset.x) + (1 - a) * this.pose.x;
             this.pose.y = a * (ty - this.calibrationOffset.y) + (1 - a) * this.pose.y;
@@ -104,8 +100,8 @@ export class HeadTracker {
 
   stop() {
     this.running = false;
-    if (this.stream) this.stream.getTracks().forEach((t) => t.stop());
-    if (this.video) this.video.remove();
+    // Don't kill the shared stream — other consumers may still use it.
+    releaseConsumer("head-tracker");
     this.stream = null;
     this.video = null;
   }
@@ -132,7 +128,11 @@ export function applyOffAxisProjection(camera, headPose, screenMeters = { w: 0.5
   const f = camera.far;
   const hx = headPose.x;
   const hy = headPose.y;
-  const hz = Math.max(0.1, headPose.z);
+  // `headPose.z` is a PROXIMITY signal (higher = closer to screen). Convert
+  // to a frustum-eye distance where smaller distance → wider frustum → bigger
+  // objects = pop-out. Clamped to [0.15, 2.5] to keep math stable at extremes.
+  const proximity = Math.max(0.05, headPose.z);
+  const hz = Math.max(0.15, Math.min(2.5, 0.5 / (proximity * 0.8 + 0.2)));
   const halfW = screenMeters.w * 0.5;
   const halfH = screenMeters.h * 0.5;
   // Screen corners in camera-local coords (camera at head position looking -Z):

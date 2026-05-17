@@ -6,8 +6,18 @@ build/
 .eggs/
 *.egg
 .env
+.env.local
 .venv/
 venv/
 *.sqlite3
 /data/
 .vercel
+# Audit byproducts: never commit the extraction-source zips (they belong in
+# .audit/raw/ or stay untracked). The audit reports under .audit/[0-5]-*/ ARE
+# committed — only the bulk raw assets are excluded.
+/*.zip
+.audit/raw/
+# Locally-cloned reference copies the audit pulled in.
+/Minority Report copy/
+# Claude Code internal worktrees.
+.claude/

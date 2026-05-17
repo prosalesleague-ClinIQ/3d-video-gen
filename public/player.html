@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Player — 3D Video Gen</title>
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="app_nav.css" />
+<link rel="stylesheet" href="dashboard_3d.css?v=10" />
+<link rel="stylesheet" href="player_styles.css" />
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+    "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.webgpu.js"
+  }
+}
+</script>
+<script src="config.js"></script>
+</head>
+<body class="app-player">
+  <nav class="app-nav">
+    <a class="app-nav-brand" href="index.html">3D Video Gen</a>
+    <div class="app-nav-links">
+      <a href="index.html">Studio</a>
+      <a href="mapper.html">Mapper</a>
+      <a href="player.html" aria-current="page">Player</a>
+    </div>
+    <div class="app-nav-actions">
+      <input id="load-id" type="text" placeholder="Project ID" />
+      <button id="btn-load" class="secondary">Load</button>
+      <button id="btn-fullscreen" class="secondary">⛶</button>
+      <button id="btn-hide-ui" class="secondary" title="Hide UI (H)">Hide UI</button>
+    </div>
+  </nav>
+
+  <section class="player-viewer">
+    <div id="canvas-holder">
+      <canvas id="gl"></canvas>
+      <div id="player-hint" class="player-hint">
+        Enter a project ID above and click <strong>Load</strong>, or paste a link of the form <code>?id=XYZ</code>. <br>
+        Use <kbd>1</kbd>–<kbd>8</kbd> to switch style, <kbd>Space</kbd> to play/pause, <kbd>F</kbd> for fullscreen, <kbd>H</kbd> to hide the UI.
+      </div>
+    </div>
+
+    <aside class="player-sidebar">
+      <h3>Style</h3>
+      <div id="style-picker" class="style-picker"></div>
+      <h3>3D Output</h3>
+      <div id="stereo-picker" class="stereo-picker"></div>
+      <div class="stereo-iod">
+        <label for="stereo-iod">Eye sep <span id="stereo-iod-val">0.064</span>m</label>
+        <input type="range" id="stereo-iod" min="0.02" max="0.15" step="0.005" value="0.064" />
+      </div>
+      <button id="btn-epson" class="primary epson-btn" title="One-click setup for Epson projector + active shutter glasses">🎥 Epson 3D preset</button>
+      <details class="epson-help">
+        <summary>Epson setup instructions</summary>
+        <ol>
+          <li>Connect laptop to Epson via HDMI.</li>
+          <li>Click <strong>Epson 3D preset</strong> above (sets SBS + fullscreen).</li>
+          <li>On Epson remote: <strong>2D/3D</strong> button → <strong>3D Format: Side-by-Side</strong>.</li>
+          <li>Pair your active shutter glasses (per projector manual).</li>
+          <li>Press <kbd>F</kbd> here or Epson's <strong>3D Inversion</strong> button if eyes feel swapped.</li>
+        </ol>
+      </details>
+      <h3>Playback</h3>
+      <div class="player-playback">
+        <button id="btn-play"  class="secondary">▶ Play</button>
+        <button id="btn-pause" class="secondary">⏸ Pause</button>
+      </div>
+      <h3>Info</h3>
+      <div id="player-info" class="player-info">No project loaded.</div>
+    </aside>
+  </section>
+
+  <div id="error-box" class="error-box"></div>
+  <div id="status-pill" class="status-pill"><span class="dot"></span><span class="label">Ready</span></div>
+
+  <script src="dashboard_3d.js?v=10"></script>
+  <script type="module" src="player.js"></script>
+</body>
+</html>

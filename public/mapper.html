@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<!-- Permissions-Policy: explicitly allow camera on this origin (browsers default
+     to camera-self, but this also propagates to nested contexts and signals to
+     the user agent that camera is a first-class feature on this page). -->
+<meta http-equiv="Permissions-Policy" content="camera=(self), microphone=()" />
+<title>Mapper — 3D Video Gen</title>
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="app_nav.css" />
+<link rel="stylesheet" href="dashboard_3d.css?v=10" />
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+    "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.webgpu.js"
+  }
+}
+</script>
+<script src="config.js"></script>
+<!-- Preload the top-5 highest-wow library picks so first click-to-assign feels instant. -->
+<link rel="preload" as="video" crossorigin="anonymous" href="https://res.cloudinary.com/demo/video/upload/e_kaleidoscope:12/fog.mp4" />
+<link rel="preload" as="video" crossorigin="anonymous" href="https://res.cloudinary.com/demo/video/upload/e_accelerate:-60/sea_turtle.mp4" />
+<link rel="preload" as="video" crossorigin="anonymous" href="https://res.cloudinary.com/demo/video/upload/e_boomerang/elephants.mp4" />
+<link rel="preload" as="video" crossorigin="anonymous" href="https://res.cloudinary.com/demo/video/upload/e_kaleidoscope:12/dog.mp4" />
+<link rel="preload" as="video" crossorigin="anonymous" href="https://res.cloudinary.com/demo/video/upload/e_kaleidoscope:16,e_hue:200,e_vignette:80/cat.mp4" />
+</head>
+<body class="app-mapper">
+  <nav class="app-nav">
+    <a class="app-nav-brand" href="index.html">3D Video Gen</a>
+    <div class="app-nav-links">
+      <a href="index.html">Studio</a>
+      <a href="mapper.html" aria-current="page">Mapper</a>
+      <a href="player.html">Player</a>
+    </div>
+    <div class="app-nav-actions">
+      <input id="load-id" type="text" placeholder="Paste project ID to load" />
+      <button id="btn-load" class="secondary">Load</button>
+      <button id="btn-save" class="primary">Save</button>
+      <button id="btn-send" class="primary send">Send to Player →</button>
+    </div>
+  </nav>
+
+  <section class="mapper-viewer">
+    <div id="canvas-holder">
+      <canvas id="gl"></canvas>
+      <div class="fps-counter" id="fps"></div>
+
+      <!-- FULL MAPPING TOOLBAR — every operation grouped by purpose -->
+      <div id="mapper-toolbar" class="mapper-toolbar projection-stepper">
+        <div class="tb-section">
+          <div class="tb-label">Capture</div>
+          <button class="step-btn active" data-step="camera" title="Start webcam (1)">🎥 Camera</button>
+          <button class="step-btn" data-act="webcam-toggle" disabled title="Toggle webcam preview thumbnail">👁 Preview</button>
+        </div>
+        <div class="tb-section">
+          <div class="tb-label">Detect</div>
+          <button class="step-btn" data-step="scan" disabled title="AI scan rectangular surfaces (2)">🤖 Scan</button>
+          <button class="step-btn" data-step="detail" disabled title="Detail scan (D)">🔬 Detail</button>
+          <button class="step-btn" data-step="lumi" disabled title="Light/dark scan (L) - best for paintings">🎨 Light/Dark</button>
+        </div>
+        <div class="tb-section">
+          <div class="tb-label">Surfaces</div>
+          <button class="step-btn" data-step="draw" disabled title="Draw a polygon (3+ clicks, dbl-click closes)">✏️ Draw</button>
+          <button class="step-btn" data-act="duplicate" disabled title="Duplicate selected">⎘ Dup</button>
+          <button class="step-btn" data-act="delete" disabled title="Delete selected (Del)">🗑 Del</button>
+          <button class="step-btn" data-act="clear-all" disabled title="Remove all surfaces">⌫ Clear</button>
+          <button class="step-btn" data-act="reset-corners" title="Reset 4-corner calibration">↺ Reset</button>
+        </div>
+        <div class="tb-section">
+          <div class="tb-label">Assign</div>
+          <button class="step-btn" data-step="randomize" disabled title="Random preset on every empty surface (R)">🎲 Random</button>
+          <button class="step-btn" data-step="assign" disabled title="Click any surface in viewport to open picker">🎬 Pick</button>
+          <button class="step-btn" data-act="all-scene" disabled title="Set every surface to live 3D scene">🌐 All scene</button>
+          <button class="step-btn" data-act="all-webcam" disabled title="Set every surface to webcam">📷 All cam</button>
+          <button class="step-btn" data-act="all-clear" disabled title="Clear every surface to empty">✕ All empty</button>
+        </div>
+        <div class="tb-section">
+          <div class="tb-label">View</div>
+          <button class="step-btn" data-act="grid-toggle" title="Toggle reference grid (G)">⊞ Grid</button>
+          <button class="step-btn" data-act="hud-toggle" title="Toggle HUD + surface list">📊 HUD</button>
+          <button class="step-btn" data-act="fullscreen" title="Fullscreen (F)">⛶ Full</button>
+        </div>
+        <div class="tb-section">
+          <div class="tb-label">Playback</div>
+          <button class="step-btn" data-step="play" disabled title="Play all videos (Space)">▶ Play</button>
+          <button class="step-btn" data-act="pause" disabled title="Pause all">⏸ Pause</button>
+          <button class="step-btn" data-act="mute-toggle" disabled title="Mute/unmute all (M)">🔇 Mute</button>
+          <button class="step-btn" data-act="loop-toggle" disabled title="Loop on/off (default ON)">🔁 Loop</button>
+          <button class="step-btn" data-act="sync" disabled title="Restart all surfaces from t=0">⟲ Sync</button>
+        </div>
+        <div class="tb-section">
+          <div class="tb-label">Output</div>
+          <button class="step-btn" data-act="snapshot" title="PNG snapshot of canvas">📸 Snap</button>
+          <button class="step-btn" data-act="record" title="Record canvas as WebM (click again to stop)">🔴 Rec</button>
+          <button class="step-btn" data-act="export-json" disabled title="Download project JSON">📄 JSON</button>
+        </div>
+      </div>
+
+      <!-- Video picker modal -->
+      <div id="surface-video-picker" class="surface-video-picker hidden">
+        <div class="spv-header" id="spv-title">Pick a video for this surface</div>
+        <div class="spv-row" id="spv-presets"></div>
+        <div class="spv-row spv-inline">
+          <input type="url" id="spv-url" placeholder="Paste a video or image URL (CORS-enabled)" />
+          <input type="file" id="spv-file" accept="video/*,image/*" />
+        </div>
+        <div class="spv-row">
+          <button class="secondary" data-spv-src="scene">🌐 Live scene</button>
+          <button class="secondary" data-spv-src="webcam">📷 Webcam</button>
+          <button class="secondary" data-spv-src="empty">✕ Clear</button>
+        </div>
+        <div class="spv-row spv-inline spv-pro">
+          <label>Opacity <input type="range" id="spv-opacity" min="0" max="1" step="0.05" value="1" /></label>
+          <label>Tint <input type="color" id="spv-tint" value="#ffffff" /></label>
+          <label class="spv-toggle"><input type="checkbox" id="spv-faux3d" /> Faux 3D</label>
+        </div>
+        <div class="spv-actions">
+          <button id="spv-confirm" class="primary">Apply</button>
+          <button id="spv-cancel" class="secondary">Cancel</button>
+        </div>
+      </div>
+
+      <!-- Surface list -->
+      <div id="surface-list-panel" class="surface-list-panel" hidden>
+        <div class="slp-header">Detected surfaces</div>
+        <div id="surface-list" class="surface-list"></div>
+      </div>
+
+      <!-- Playback HUD -->
+      <div id="playback-hud" class="playback-hud" hidden></div>
+    </div>
+
+    <aside class="mapper-sidebar">
+      <div class="side-section">
+        <h3>Mapper</h3>
+        <p class="side-desc">Point your camera at a wall, building, or artwork. The AI finds rectangular surfaces automatically. Click each surface to assign a video. Save the project and open it in the Player to show it in different styles.</p>
+      </div>
+      <div class="side-section">
+        <h3>Shortcuts</h3>
+        <ul class="side-keys">
+          <li><kbd>Space</kbd> Play / pause all</li>
+          <li><kbd>D</kbd> Detail scan</li>
+          <li><kbd>R</kbd> Randomize presets</li>
+          <li><kbd>Esc</kbd> Cancel draw</li>
+        </ul>
+      </div>
+      <div class="side-section" id="save-result" hidden>
+        <h3>Saved</h3>
+        <p class="side-desc">Project ID:</p>
+        <input id="save-id" readonly />
+        <a id="open-player" class="primary" target="_blank">Open in Player →</a>
+      </div>
+    </aside>
+  </section>
+
+  <div id="error-box" class="error-box"></div>
+  <div id="status-pill" class="status-pill"><span class="dot"></span><span class="label">Ready</span></div>
+
+  <script src="dashboard_3d.js?v=10"></script>
+  <script type="module" src="mapper.js?v=9"></script>
+</body>
+</html>

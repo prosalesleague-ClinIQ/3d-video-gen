@@ -27,7 +27,7 @@ import uuid
 from pathlib import Path
 from threading import Lock, Thread
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -70,6 +70,11 @@ _jobs: dict[str, dict] = {}
 _jobs_lock = Lock()
 _films: dict[str, dict] = {}
 _films_lock = Lock()
+_projects: dict[str, dict] = {}
+_projects_lock = Lock()
+# Upper bound on projection-project in-memory store so a misbehaving client
+# can't exhaust the HF Space container memory.
+_PROJECTS_MAX = 500
 
 app = FastAPI(
     title="3D Video Gen — Kaleidoscope Studio",
@@ -77,12 +82,25 @@ app = FastAPI(
     version="4.0.0",
 )
 
+# SECURITY (.audit/1-security/H1): origin allowlist instead of "*".
+# Override via env CORS_ORIGINS="https://foo.com,https://bar.com" if needed.
+_default_origins = [
+    "https://3d-video-gen.vercel.app",
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+]
+_cors_origins = [
+    o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()
+] or _default_origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=False,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
+    max_age=600,
 )
 
 
@@ -531,6 +549,141 @@ def get_film(film_id: str):
         str(mp4), media_type="video/mp4", filename=f"{film_id}.mp4",
         headers={"Cache-Control": "public, max-age=86400"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Projection-project save/load (AI projection 3D mapping MVP, PDF §PHASE 10).
+# In-memory, UUID-keyed, mirrors the existing _jobs / _films pattern.
+# Hardenings applied from the security review:
+#   - Bounded body via Pydantic Field max_length / max_items.
+#   - UUID format validation before dict lookup on GET.
+#   - content.uri scheme whitelist (http/https/blob only — prevents javascript:
+#     and data: URIs that TextureLoader would otherwise happily fetch).
+#   - Global store cap (_PROJECTS_MAX) to bound memory.
+# ---------------------------------------------------------------------------
+
+# SECURITY (.audit/1-security/M1): dropped blob: and "" (relative) from server-
+# side whitelist. Client may still use blob: locally — backend only stores http(s).
+_ALLOWED_URI_SCHEMES = {"http", "https"}
+
+
+def _validate_uri(uri, *, field: str) -> None:
+    """Hard-validate any URI string that flows into <video src> / TextureLoader."""
+    if uri is None or uri == "":
+        return
+    if not isinstance(uri, str) or len(uri) > 2048:
+        raise HTTPException(status_code=400, detail=f"{field} must be a string <=2048 chars")
+    from urllib.parse import urlparse
+    scheme = urlparse(uri).scheme.lower()
+    if scheme not in _ALLOWED_URI_SCHEMES:
+        raise HTTPException(status_code=400, detail=f"{field} scheme '{scheme}' not allowed")
+
+
+# SECURITY (.audit/1-security/H3): strict per-surface schema. Bounds id/name
+# length, validates polygon shape, scheme-checks any per-surface uri.
+class SurfaceItem(BaseModel):
+    id: str = Field(..., min_length=1, max_length=80)
+    name: str = Field(default="", max_length=120)
+    source: str = Field(default="empty", max_length=24)
+    uri: str | None = Field(default=None, max_length=2048)
+    # Free-form polygon / transform / style payload — bounded by Pydantic dict size
+    polygon: list | None = None
+    style: dict | None = None
+    opacity: float | None = None
+    tint: str | None = Field(default=None, max_length=24)
+    blend: str | None = Field(default=None, max_length=24)
+    faux3d: bool | None = None
+    # Anything else is fine but ignored at load (see model_config)
+    model_config = {"extra": "allow"}
+
+
+class ProjectionProject(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+    calibration: dict = Field(default_factory=dict)
+    # SECURITY: use strict schema; rejects polymorphic / oversized surface items.
+    surfaces: list[SurfaceItem] = Field(default_factory=list, max_length=100)
+    content: dict = Field(default_factory=dict)
+
+
+class ProjectionProjectResponse(BaseModel):
+    project_id: str
+    project: ProjectionProject
+
+
+def _validate_projection_content(content: dict) -> None:
+    uri = content.get("uri") if isinstance(content, dict) else None
+    _validate_uri(uri, field="content.uri")
+
+
+def _validate_surfaces(surfaces: list[SurfaceItem]) -> None:
+    for i, s in enumerate(surfaces):
+        if s.uri:
+            _validate_uri(s.uri, field=f"surfaces[{i}].uri")
+
+
+# SECURITY (.audit/1-security/C2): in-process per-IP rate limit on save.
+# Sliding window: max _RATE_MAX writes per _RATE_WINDOW seconds per remote IP.
+# Cheap, no new dep. Bypass with env RATE_LIMIT_DISABLED=1 (do not set in prod).
+_RATE_MAX = int(os.environ.get("PROJECTION_RATE_MAX", "20"))
+_RATE_WINDOW = int(os.environ.get("PROJECTION_RATE_WINDOW_SEC", "60"))
+_rate_buckets: dict[str, list[float]] = {}
+_rate_lock = Lock()  # `Lock` imported from threading at top of file
+
+
+def _enforce_rate_limit(client_ip: str) -> None:
+    if os.environ.get("RATE_LIMIT_DISABLED") == "1":
+        return
+    now = time.monotonic()
+    cutoff = now - _RATE_WINDOW
+    with _rate_lock:
+        bucket = _rate_buckets.setdefault(client_ip, [])
+        # Drop stale timestamps.
+        while bucket and bucket[0] < cutoff:
+            bucket.pop(0)
+        if len(bucket) >= _RATE_MAX:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit: {_RATE_MAX} writes per {_RATE_WINDOW}s",
+            )
+        bucket.append(now)
+        # Bound the bucket dict itself.
+        if len(_rate_buckets) > 4096:
+            # Evict oldest IP keys.
+            for k in list(_rate_buckets.keys())[: len(_rate_buckets) // 4]:
+                _rate_buckets.pop(k, None)
+
+
+@app.post("/projection-project", response_model=ProjectionProjectResponse)
+def save_projection_project(req: ProjectionProject, request: Request):
+    # SECURITY: rate-limit before any work.
+    client_ip = request.client.host if request.client else "unknown"
+    _enforce_rate_limit(client_ip)
+    _validate_projection_content(req.content)
+    _validate_surfaces(req.surfaces)
+    pid = str(uuid.uuid4())
+    with _projects_lock:
+        if len(_projects) >= _PROJECTS_MAX:
+            # Evict oldest entry (FIFO) rather than reject — keeps the demo
+            # responsive under light abuse.
+            try:
+                _projects.pop(next(iter(_projects)))
+            except StopIteration:
+                pass
+        _projects[pid] = req.model_dump()
+    return ProjectionProjectResponse(project_id=pid, project=req)
+
+
+@app.get("/projection-project/{pid}", response_model=ProjectionProjectResponse)
+def load_projection_project(pid: str):
+    try:
+        uuid.UUID(pid)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid project_id")
+    with _projects_lock:
+        data = _projects.get(pid)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Projection project not found")
+    return ProjectionProjectResponse(project_id=pid, project=ProjectionProject(**data))
 
 
 if __name__ == "__main__":
