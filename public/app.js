@@ -628,6 +628,10 @@ function animate() {
   let realPose = null;
   if (povSource === "face" && headTracker) realPose = headTracker.getHeadPose();
   else if (povSource === "hand" && handTracker) realPose = handTracker.getPose();
+  // Gaze mode: head pose blended with iris-derived gaze offset (see
+  // head_tracking.js#getCombinedPose). Produces the strongest "look around
+  // the corner" illusion on the Epson stereo output.
+  else if (povSource === "gaze" && headTracker) realPose = headTracker.getCombinedPose({ gain: 0.10 });
   else if (povActive && headTracker) realPose = headTracker.getHeadPose(); // legacy POV button
   if (realPose && realPose.confidence > 0.4) {
     const k = 0.5 * state.depthIntensity;
@@ -1933,12 +1937,15 @@ try {
     if (povSource === "hand") povSource = "off";
   };
 
-  // Pose-source pill: "off" | "face" | "hand"
+  // Pose-source pill: "off" | "face" | "hand" | "gaze"
+  // "gaze" uses the SAME headTracker — gaze ratios are computed on the iris
+  // landmarks (468–477) that FaceLandmarker emits when refineLandmarks is on.
+  // No extra webcam consumer, no extra model. See head_tracking.js#init.
   window.setPovSource = async (src) => {
-    if (src === "face") {
+    if (src === "face" || src === "gaze") {
       const r = await window.enableHeadTracking?.();
       if (!r?.ok) return r;
-      povSource = "face";
+      povSource = src;
     } else if (src === "hand") {
       const r = await window.enableHandTracking?.();
       if (!r?.ok) return r;

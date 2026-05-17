@@ -18,6 +18,7 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
 import { ProjectionMode, PRESETS } from "./projection_mapping.js";
 import { HandTracker } from "./hand_tracking.js";
+import Maptastic from "./lib/maptastic.js";
 
 const BACKEND = window.__BACKEND_URL__ || "";
 
@@ -386,6 +387,10 @@ document.querySelectorAll(".step-btn").forEach((btn) => btn.addEventListener("cl
     else if (act === "fullscreen") {
       if (!document.fullscreenElement) await els.holder.requestFullscreen?.();
       else await document.exitFullscreen?.();
+    }
+    else if (act === "calibrate") {
+      toggleCalibrate();
+      btn.classList.toggle("active", _calibrating);
     }
     else if (act === "pause") {
       projectionHandle.pauseAll();
@@ -772,7 +777,46 @@ document.addEventListener("keydown", (e) => {
   else if (k === "l") { document.querySelector('.step-btn[data-step="lumi"]')?.click(); }
   else if (k === "r") { document.querySelector('.step-btn[data-step="randomize"]')?.click(); }
   else if (k === "escape") { if (_drawing) cancelDraw(); closeVideoPicker(); }
+  else if (k === "m") { e.preventDefault(); toggleCalibrate(); }
 });
+
+// --- Maptastic projection-calibration overlay ---------------------------
+// Press `M` (or click the 🎯 Calibrate toolbar button) to enter calibration
+// mode. The WebGL canvas keeps rendering; Maptastic just adds 4 drag-handles
+// at the corners and applies a `matrix3d(...)` CSS transform to the canvas
+// element. The transform persists to localStorage so the calibration survives
+// reloads — same flow as upstream maptastic, just scoped to OUR canvas id.
+let _maptastic = null;
+let _calibrating = false;
+
+function ensureMaptasticInstance() {
+  if (_maptastic) return _maptastic;
+  // Maptastic owns its own fullscreen overlay <canvas> that draws the handles
+  // and bounding box. The layer it transforms is the WebGL canvas (#gl).
+  _maptastic = Maptastic({
+    layers: ["gl"],
+    labels: false,
+    crosshairs: false,
+    screenbounds: false,
+    autoSave: true,
+    autoLoad: true,
+    onchange: () => {
+      // Future: bridge the matrix into projection_mapping.js as a shader
+      // uniform via computeSurfaceHomography. For the MVP, the CSS transform
+      // Maptastic applies to #gl is enough — the WebGL output is warped at
+      // composition time.
+    },
+  });
+  return _maptastic;
+}
+
+function toggleCalibrate() {
+  ensureMaptasticInstance();
+  _calibrating = !_calibrating;
+  _maptastic.setConfigEnabled(_calibrating);
+  document.body.classList.toggle("mapper-calibrating", _calibrating);
+  setStatus(_calibrating ? "warm" : "ok", _calibrating ? "Calibrating — drag corners; press M to exit" : "Calibration saved");
+}
 
 // --- Save / Load / Send-to-Player --------------------------------------
 els.btnSave?.addEventListener("click", async () => {
@@ -899,18 +943,25 @@ function handTick() {
       const pageY = rect.top  + cy;
       setHandDotPosition(cx, cy, true);
 
-      // Pinch edge → synthetic pointerdown (rising) + pointerup (falling)
+      // Pinch edges now come from HandGestureClassifier (palm-normalised, EMA-
+      // smoothed, hysteresis-gated, N-frame-stability-gated) via the one-shot
+      // `pose.pinchEdge` field. Far fewer mis-fires than the previous
+      // threshold-on-amplitude approach.
+      const edge = pose.pinchEdge;            // "down" | "up" | null
       const pinchClosed = pose.pinch >= 0.95;
-      if (pinchClosed && !_handPinchPrev) {
+      if (edge === "down") {
         _handPinchPrev = true;
         dispatchSyntheticPointer("pointerdown", pageX, pageY);
-      } else if (!pinchClosed && _handPinchPrev) {
+      } else if (edge === "up") {
         _handPinchPrev = false;
         dispatchSyntheticPointer("pointerup", pageX, pageY);
-      } else if (pinchClosed) {
-        // Continuous pointermove while pinched (drag-like)
+      } else if (pinchClosed && _handPinchPrev) {
+        // Continuous pointermove while pinched (drag-like).
         dispatchSyntheticPointer("pointermove", pageX, pageY);
       }
+      // The pinchEdge field is one-shot — clear it so the next frame's null
+      // doesn't get mis-read. (Tracker also resets it next tick.)
+      pose.pinchEdge = null;
     } else {
       setHandDotPosition(0, 0, false);
     }

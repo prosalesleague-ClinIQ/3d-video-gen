@@ -15,6 +15,7 @@
 
 import { OneEuroVec } from "./onee_filter.js";
 import { getSharedWebcam, releaseConsumer } from "./webcam.js";
+import { HandGestureClassifier } from "./hand_filters.js";
 
 const MEDIAPIPE_MODULE = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/vision_bundle.mjs";
 const MEDIAPIPE_WASM   = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm";
@@ -43,14 +44,19 @@ export class HandTracker {
       x: 0, y: 0, z: 0.5,
       tip: { x: 0.5, y: 0.5 },     // [0,1] image-relative tip position
       pinch: 0,                     // 0..1 (1 = touching)
+      pinchEdge: null,              // "down" | "up" | null — one-shot, cleared every poll
       gesture: "none",              // "point" | "pinch" | "fist" | "palm" | "peace" | "none"
       confidence: 0,
     };
     // 1€ filter for tip — kills jitter
     this._tipOEF = new OneEuroVec(2, { mincutoff: 1.6, beta: 0.04 });
-    // Pinch hysteresis: closed under 0.06 of palm width, open over 0.10
+    // yoha-style temporal gesture classifier (palm-normalized pinch + fist +
+    // swipe). The classifier owns its own EMA + hysteresis + stability gate.
+    this._gestures = new HandGestureClassifier();
+    // Backstop pinch state for coarse classification (kept for `pose.gesture`
+    // priority — we still treat pinch as the top-priority gesture).
     this._pinchClosed = false;
-    // N-frame stability gate for gesture
+    // N-frame stability gate for the COARSE multi-gesture classifier.
     this._stableGesture = "none";
     this._streak = 0;
     this._lastFiredGesture = "none";
@@ -162,17 +168,17 @@ export class HandTracker {
     this.pose.z = proximity;
     this.pose.confidence = 1.0;
 
-    // ---- Pinch detection (thumb-tip <-> index-tip) ----
-    // Normalise by hand width (wrist→index_pip).
-    const palmRef = Math.hypot(indexPip.x - wrist.x, indexPip.y - wrist.y) || 0.18;
-    const pinchDist = Math.hypot(thumb.x - tip.x, thumb.y - tip.y) / palmRef;
-    // Hysteresis: close at 0.45 of palm width, open at 0.70.
-    if (this._pinchClosed) {
-      if (pinchDist > 0.70) this._pinchClosed = false;
-    } else {
-      if (pinchDist < 0.45) this._pinchClosed = true;
-    }
-    this.pose.pinch = this._pinchClosed ? 1 : Math.max(0, 1 - (pinchDist - 0.45) / 0.25);
+    // ---- Pinch detection (palm-normalised, EMA-smoothed, hysteresis-gated) ----
+    // Delegated to HandGestureClassifier (hand_filters.js). It owns the EMA,
+    // hysteresis state machine and N-frame stability gating for the pinch
+    // edge events. We surface `pose.pinch` (0..1) AND a one-shot edge event
+    // `pose.pinchEdge ∈ {"down", "up", null}` that consumers (mapper synthetic
+    // pointer events) read once per poll then clear.
+    this._gestures.update(lms);
+    const gp = this._gestures.pinch;
+    this._pinchClosed = gp.active;
+    this.pose.pinch = gp.active ? 1 : Math.max(0, 1 - gp.ratio / 0.6);
+    this.pose.pinchEdge = gp.justClosed ? "down" : gp.justOpened ? "up" : null;
 
     // ---- Coarse pose classification (used for gesture-driven actions) ----
     // Count "fingers up": tip y is above (smaller than) pip y for that finger.

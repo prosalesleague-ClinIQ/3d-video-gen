@@ -18,6 +18,35 @@
 //   - In-memory save/load via demo-service /projection-project endpoints
 
 import * as THREE from "three";
+import PerspT from "./lib/perspt.js";
+
+// Re-export PerspT so callers can `import { computeSurfaceHomography } from
+// "./projection_mapping.js"` without knowing about the lib path. Compute the
+// 3×3 homography that maps a unit texture quad (UV space [0,1]²) onto the
+// surface's screen-space NDC polygon. Pass the result as a GLSL uniform
+// mat3, or as the matrix for a CSS `matrix3d(...)` DOM-warp preview.
+//
+// `srcQuad` defaults to the unit-UV square; `dstQuad` is the 4 NDC points
+// of the surface (TL, TR, BR, BL in NDC: [-1,1] origin centre).
+export function computeSurfaceHomography(dstQuad, srcQuad = [[0,0],[1,0],[1,1],[0,1]]) {
+  const flat = (q) => [q[0][0], q[0][1], q[1][0], q[1][1], q[2][0], q[2][1], q[3][0], q[3][1]];
+  return PerspT(flat(srcQuad), flat(dstQuad));
+}
+
+// Pack a PerspT instance to a 9-float Float32Array for `uniform mat3`. (GLSL
+// mat3 is column-major: caller may want to call `.transpose()` after upload.)
+export function homographyToMat3(perspt) {
+  return new Float32Array(perspt.toMat3());
+}
+
+// Convenience: convert a PerspT homography to a 4×4 `matrix3d(...)` CSS string
+// for DOM-element preview-warping. The 4×4 expansion preserves z (identity Z).
+export function homographyToCss(perspt) {
+  const c = perspt.coeffs;
+  return `matrix3d(${c[0]},${c[3]},0,${c[6]},${c[1]},${c[4]},0,${c[7]},0,0,1,0,${c[2]},${c[5]},0,1)`;
+}
+
+export { PerspT };
 
 // ---------------------------------------------------------------------------
 // Preset video library — Cloudinary demo account MP4s. All verified live with

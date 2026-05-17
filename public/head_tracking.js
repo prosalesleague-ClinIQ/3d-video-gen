@@ -7,10 +7,15 @@
 // same frame without a second getUserMedia prompt.
 
 import { getSharedWebcam, releaseConsumer } from "./webcam.js";
+import { GazeTracker } from "./gaze_tracking.js";
 
 const MEDIAPIPE_MODULE = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/vision_bundle.mjs";
 const MEDIAPIPE_WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm";
 const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
+
+// Re-exports — saves consumers from importing webcam/gaze themselves and lets
+// us keep all face/eye plumbing in one module from the outside.
+export { GazeTracker };
 
 export class HeadTracker {
   constructor() {
@@ -22,6 +27,13 @@ export class HeadTracker {
     this.calibrationOffset = { x: 0, y: 0, z: 0 };
     this.emaAlpha = 0.35;
     this._lastTimestamp = 0;
+    // Gaze layer — runs on the SAME FaceLandmarker output, just reading the
+    // iris landmarks (468–477) instead of the 4×4 transformation matrix.
+    this.gaze = new GazeTracker({ smoothing: true });
+    // Composed pose: head pose + gaze offset. Consumers that want pure head
+    // pose use getHeadPose(); for the "look around the corner" illusion use
+    // getCombinedPose().
+    this._combinedPose = { x: 0, y: 0, z: 0.5, confidence: 0 };
   }
 
   async init() {
@@ -52,6 +64,10 @@ export class HeadTracker {
         runningMode: "VIDEO",
         numFaces: 1,
         outputFacialTransformationMatrixes: true,
+        // refineLandmarks expands the output to 478 points incl. iris (468–477).
+        // GazeTracker needs these — tiny extra inference cost (~1 ms / frame).
+        outputFaceBlendshapes: false,
+        refineLandmarks: true,
       });
     } catch (e) {
       throw new Error("model_load_failed: " + e.message);
@@ -89,6 +105,12 @@ export class HeadTracker {
           } else {
             this.pose.confidence *= 0.9;
           }
+          // ---- Gaze tier: feed iris landmarks into GazeTracker -------------
+          // Same single inference; we just read different parts of the result.
+          const lms = result?.faceLandmarks?.[0];
+          if (lms && lms.length >= 478) {
+            this.gaze.update(lms);
+          }
         } catch (e) {
           // transient — ignore
         }
@@ -115,6 +137,26 @@ export class HeadTracker {
 
   getHeadPose() {
     return this.pose;
+  }
+
+  // Gaze-augmented pose. Head pose drives the gross parallax (cm-scale);
+  // gaze ratios add a small mm-scale offset that captures where the user's
+  // EYES are looking within their head. The combined signal nails the
+  // "look around the edge of an object" effect for the Epson stereo output.
+  //
+  // Pass { gain } to scale how aggressively the eyes push the frustum.
+  getCombinedPose({ gain = 0.08 } = {}) {
+    const g = this.gaze.getPoseOffset({ gain });
+    this._combinedPose.x = this.pose.x + g.x;
+    this._combinedPose.y = this.pose.y + g.y;
+    this._combinedPose.z = this.pose.z;     // gaze doesn't change depth
+    this._combinedPose.confidence = this.pose.confidence;
+    return this._combinedPose;
+  }
+
+  // Pure gaze, no head pose. Useful for cursor-by-eye mode.
+  getGazePose({ gain = 0.15 } = {}) {
+    return this.gaze.getPoseOffset({ gain });
   }
 }
 
