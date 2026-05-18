@@ -1,0 +1,71 @@
+name: Sync demo-service → HF Space
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'demo-service/**'
+      - '.github/workflows/sync-hf-space.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: hf-space-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HF_USER: ${{ vars.HF_USER || 'prosalesleague' }}
+      HF_SPACE: ${{ vars.HF_SPACE || '3d-video-gen' }}
+    steps:
+      - name: Guard — token must be configured
+        if: ${{ secrets.HF_TOKEN == '' }}
+        run: |
+          echo "::error::HF_TOKEN repo secret is not set."
+          echo "Add it at https://github.com/${{ github.repository }}/settings/secrets/actions"
+          echo "Use a Hugging Face access token with 'write' on the Space."
+          exit 1
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Extract demo-service to a clean checkout
+        run: |
+          rsync -a --delete \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='.git' \
+            demo-service/ /tmp/hf-space/
+
+      - name: Push to HF Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd /tmp/hf-space
+          git init -q
+          git config user.email "ci@github.com"
+          git config user.name "ci-sync"
+          git remote add origin "https://${HF_USER}:${HF_TOKEN}@huggingface.co/spaces/${HF_USER}/${HF_SPACE}"
+          # Pull current HF Space state so we don't overwrite git history.
+          git fetch origin main || true
+          git checkout -B main
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to sync."
+            exit 0
+          fi
+          msg="ci: sync demo-service from github @ ${GITHUB_SHA::8}"
+          git commit -m "$msg"
+          git push -f origin main
+          echo "Pushed ${GITHUB_SHA::8} to HF Space ${HF_USER}/${HF_SPACE}"
+
+      - name: Verify HF Space rebuilt
+        run: |
+          echo "HF Spaces auto-rebuild on push. Track progress at:"
+          echo "  https://huggingface.co/spaces/${HF_USER}/${HF_SPACE}"
+          echo
+          echo "First boot of a rebuilt space takes ~2-3 minutes."
