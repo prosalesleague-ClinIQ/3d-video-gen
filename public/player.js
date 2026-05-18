@@ -19,6 +19,7 @@ import { ProjectionMode } from "./projection_mapping.js";
 import { STYLES, STYLE_ORDER } from "./player_styles.js";
 import { StereoOutput, STEREO_MODES } from "./player_stereo.js";
 import { applyCalibrationToElement, onCalibrationChange } from "./calibration.js";
+import { listProjects, timeAgo, removeProject, addProject, onChange as onRecentChange } from "./recent_projects.js";
 
 const BACKEND = window.__BACKEND_URL__ || "";
 
@@ -160,6 +161,9 @@ async function loadProject(id) {
     setStatus("warm", "Loading project…");
     await ensureProjection();
     await projectionHandle.loadFromBackend(id, BACKEND);
+    // Track the load in recent-projects so the next visit shows it in the
+    // empty-state quick-launch list.
+    addProject({ id, name: id, source: "loaded" });
     const surfaces = projectionHandle.getSurfaces();
     // SECURITY: escape unauth project payloads + URL-param id before HTML
     // interpolation (see .audit/1-security/C1).
@@ -192,6 +196,45 @@ if (initialId) {
   });
 }
 if (hideUi) document.body.classList.add("ui-hidden");
+
+// --- Recent projects quick-launch (empty-state) ------------------------
+// Re-renders the "Recent projects" list under the hint on every page-load
+// + on cross-tab storage events (so saving in another tab updates this).
+function renderRecentProjects() {
+  const wrap = document.getElementById("player-hint-recent");
+  const list = document.getElementById("player-hint-recent-list");
+  if (!wrap || !list) return;
+  const items = listProjects({ limit: 8 });
+  if (!items.length) { wrap.hidden = true; list.innerHTML = ""; return; }
+  wrap.hidden = false;
+  // SECURITY: id + name come from saveToBackend results stored in localStorage
+  // on this device. Still escape on render — defense in depth.
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
+  list.innerHTML = items.map((p) =>
+    `<div class="rp-row" data-id="${esc(p.id)}" title="${esc(p.id)}">
+      <button class="rp-launch" type="button">▶</button>
+      <div class="rp-meta">
+        <div class="rp-name">${esc(p.name || "(unnamed)")}</div>
+        <div class="rp-sub">${esc(timeAgo(p.ts))} ago · ${esc(p.source)}</div>
+      </div>
+      <button class="rp-remove" type="button" title="Remove from recents">✕</button>
+    </div>`
+  ).join("");
+  list.addEventListener("click", (e) => {
+    const row = e.target.closest(".rp-row");
+    if (!row) return;
+    const id = row.dataset.id;
+    if (e.target.closest(".rp-remove")) {
+      removeProject(id);
+      renderRecentProjects();
+    } else {
+      els.loadId.value = id;
+      loadProject(id);
+    }
+  }, { once: false });
+}
+renderRecentProjects();
+onRecentChange(() => renderRecentProjects());
 
 // --- Empty-state "Try the demo" CTA ------------------------------------
 // Lightweight demo project: 3 surfaces showing different kaleido + flythrough

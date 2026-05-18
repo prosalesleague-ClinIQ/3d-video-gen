@@ -289,6 +289,118 @@ h1 {
 .player-hint-tip { font-size: 0.78rem; color: var(--text-muted); margin-top: 6px; }
 .player-hint-tip kbd { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); padding: 1px 5px; border-radius: 3px; font-family: ui-monospace, monospace; font-size: 0.75em; }
 
+/* --- Save modal (replaces browser prompt() in Mapper + Studio) --- */
+.save-modal {
+  position: fixed; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(6px);
+  z-index: 9998; /* one below help modal */
+  animation: ob-fade-in 200ms ease-out;
+}
+.save-modal.hidden { display: none; }
+.save-modal-card {
+  position: relative;
+  max-width: 520px; width: calc(100% - 64px);
+  background: linear-gradient(180deg, rgba(20, 24, 44, 0.97) 0%, rgba(14, 18, 36, 0.97) 100%);
+  border: 1px solid rgba(140, 220, 255, 0.22);
+  border-radius: 14px;
+  padding: 28px 32px;
+  color: #eaeaf6;
+}
+.save-modal-close {
+  position: absolute; top: 12px; right: 12px;
+  width: 30px; height: 30px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-muted);
+  cursor: pointer; font-size: 0.9rem;
+}
+.save-modal h2 { margin: 0 0 12px; color: #5cf; font-size: 1.15rem; }
+.save-modal-prompt { font-size: 0.9rem; line-height: 1.5; color: var(--text-muted); margin: 0 0 12px; }
+.save-modal-spinner::after { content: "…"; animation: ob-fade-in 800ms ease-in-out infinite alternate; }
+.save-modal-error { color: var(--err); font-size: 0.9rem; margin: 0 0 14px; }
+.save-modal-input {
+  width: 100%; padding: 10px 14px;
+  font-size: 0.95rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  color: #eaeaf6;
+}
+.save-modal-input:focus { outline: 2px solid rgba(34, 211, 238, 0.5); border-color: rgba(34, 211, 238, 0.6); }
+.save-modal-row { display: flex; gap: 8px; align-items: stretch; margin-bottom: 12px; }
+.save-modal-row .save-modal-input { font-family: ui-monospace, monospace; font-size: 0.82rem; }
+.save-modal-meta { font-size: 0.78rem; color: var(--text-muted); margin: 4px 0 14px; display: flex; gap: 8px; align-items: center; }
+.save-modal-id-label { text-transform: uppercase; letter-spacing: 0.08em; }
+.save-modal-id {
+  font-family: ui-monospace, monospace;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 1px 8px; border-radius: 4px;
+}
+.save-modal-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.save-modal-actions .primary,
+.save-modal-actions .secondary {
+  padding: 9px 16px; font-size: 0.88rem; border-radius: 6px;
+  cursor: pointer; border: 1px solid transparent;
+  display: inline-flex; align-items: center; gap: 6px; text-decoration: none;
+}
+.save-modal-actions .primary {
+  background: linear-gradient(180deg, #8b5ac8 0%, #5b2f9f 100%);
+  color: #fff; border-color: rgba(220, 180, 255, 0.55);
+}
+.save-modal-actions .secondary {
+  background: rgba(255, 255, 255, 0.06);
+  color: #eaeaf6;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.save-modal-actions .primary:hover { filter: brightness(1.12); }
+.save-modal-actions .secondary:hover { background: rgba(34, 211, 238, 0.10); border-color: rgba(34, 211, 238, 0.4); }
+
+/* --- Recent projects list (Player empty-state) --- */
+.player-hint-recent {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.player-hint-recent-title {
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-muted); margin-bottom: 6px;
+}
+.player-hint-recent-list { display: grid; gap: 4px; }
+.rp-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.rp-row:hover { background: rgba(34, 211, 238, 0.08); border-color: rgba(34, 211, 238, 0.3); }
+.rp-launch {
+  flex: 0 0 26px; height: 26px; width: 26px; border-radius: 50%;
+  background: rgba(139, 90, 200, 0.25);
+  border: 1px solid rgba(220, 180, 255, 0.45);
+  color: #5cf;
+  cursor: pointer; font-size: 0.8rem;
+}
+.rp-meta { flex: 1; min-width: 0; }
+.rp-name { font-weight: 500; color: #eaeaf6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-sub  { font-size: 0.72rem; color: var(--text-muted); }
+.rp-remove {
+  flex: 0 0 24px; height: 24px; width: 24px; border-radius: 50%;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer; font-size: 0.78rem;
+  opacity: 0; transition: opacity 140ms ease;
+}
+.rp-row:hover .rp-remove { opacity: 1; }
+.rp-remove:hover { background: rgba(239, 68, 68, 0.12); border-color: rgba(239, 68, 68, 0.4); color: var(--err); }
+
 /* ---------- Cards (shared shell) ---------- */
 
 .prompt-bar, .director-panel, .viewer, .storyboard, .card.details {

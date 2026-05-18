@@ -2,6 +2,7 @@
   "name": "3d-video-gen",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "description": "Browser-first projection mapping + 3D video studio with head / eye / hand tracking.",
   "scripts": {
     "test": "bash tests/run_all.sh --quick",

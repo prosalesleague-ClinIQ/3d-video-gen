@@ -1476,23 +1476,71 @@ function wireToolbar() {
   const saveBtn = document.getElementById("projection-save");
   if (saveBtn) saveBtn.addEventListener("click", async () => {
     if (!projectionHandle) return;
-    try {
-      const name = prompt("Project name:", "untitled") || "untitled";
-      const res = await projectionHandle.saveToBackend(name, BACKEND);
-      prompt("Saved. Project ID (copy to load later):", res.project_id);
-    } catch (e) { showError("Projection save failed: " + (e?.message || e)); }
+    // Lazy-import the shared save_modal so Studio doesn't pull it in on
+    // first paint (save is a rare action vs. the rest of the Studio).
+    const { openSaveModal } = await import("./save_modal.js");
+    const result = await openSaveModal({
+      suggestedName: "untitled",
+      saver: (name) => projectionHandle.saveToBackend(name, BACKEND),
+    });
+    if (result?.error) showError("Projection save failed: " + result.error);
   });
   const loadBtn = document.getElementById("projection-load");
   if (loadBtn) loadBtn.addEventListener("click", async () => {
     if (!projectionHandle) return;
-    const id = prompt("Project ID to load:");
+    // Replace prompt() with an inline mini-modal that takes a UUID.
+    const id = (await __askProjectId()) || "";
     if (!id) return;
     try {
       await projectionHandle.loadFromBackend(id, BACKEND);
+      const { addProject } = await import("./recent_projects.js");
+      addProject({ id, name: id, source: "loaded" });
       renderSurfaceList();
     }
     catch (e) { showError("Projection load failed: " + (e?.message || e)); }
   });
+
+  // Lightweight inline async-prompt: shows a 1-input dialog using the
+  // help-modal CSS shell. Resolves with the entered string or null.
+  // Defined here to keep it scoped to the Studio's projection load.
+  function __askProjectId() {
+    return new Promise((resolve) => {
+      // Pop the help modal mechanism — we just re-use its CSS class for free.
+      let modal = document.getElementById("__ask-modal");
+      if (!modal) {
+        modal = document.createElement("div");
+        modal.id = "__ask-modal";
+        modal.className = "help-modal hidden";
+        modal.innerHTML = `
+          <div class="help-modal-card" role="dialog" aria-label="Load project">
+            <h2>Load project</h2>
+            <p>Paste the project ID (UUID) you got when you saved this in the Mapper.</p>
+            <input type="text" id="__ask-input" class="save-modal-input" placeholder="e.g. 6e90e6ef-d36c-4e18-..." style="width:100%;margin-bottom:14px" />
+            <div class="save-modal-actions">
+              <button class="primary" id="__ask-go">Load</button>
+              <button class="secondary" id="__ask-cancel">Cancel</button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(modal);
+      }
+      const input = modal.querySelector("#__ask-input");
+      input.value = "";
+      const close = (val) => {
+        modal.classList.add("hidden");
+        resolve(val);
+      };
+      modal.classList.remove("hidden");
+      setTimeout(() => input.focus(), 50);
+      modal.querySelector("#__ask-go").onclick = () => close(input.value.trim());
+      modal.querySelector("#__ask-cancel").onclick = () => close(null);
+      modal.onclick = (e) => { if (e.target === modal) close(null); };
+      input.onkeydown = (e) => {
+        if (e.key === "Enter") close(input.value.trim());
+        if (e.key === "Escape") close(null);
+      };
+    });
+  }
 
   // --- v3 stepper: Start camera → Scan → Assign → Play ------------------
   const stepBtns = () => Array.from(document.querySelectorAll(".step-btn"));

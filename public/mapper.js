@@ -20,6 +20,8 @@ import { ProjectionMode, PRESETS } from "./projection_mapping.js";
 import { HandTracker } from "./hand_tracking.js";
 import Maptastic from "./lib/maptastic.js";
 import { LIBRARY, CATEGORIES, getByCategory } from "./video_library.js";
+import { openSaveModal } from "./save_modal.js";
+import { addProject } from "./recent_projects.js";
 
 const BACKEND = window.__BACKEND_URL__ || "";
 
@@ -894,22 +896,36 @@ function toggleCalibrate() {
 }
 
 // --- Save / Load / Send-to-Player --------------------------------------
+// Save flow now uses the shared save_modal.js — no browser prompt(). The
+// modal handles the name input, calls saveToBackend, shows the result with
+// a copy-link button + open-in-player CTA, and pushes the project into
+// recent_projects.js for cross-page history.
 els.btnSave?.addEventListener("click", async () => {
   if (!projectionHandle) return;
-  try {
-    const name = (prompt("Project name:", "untitled") || "untitled").slice(0, 80);
-    const res = await projectionHandle.saveToBackend(name, BACKEND);
-    els.saveIdInput.value = res.project_id;
-    els.openPlayer.href = `player.html?id=${encodeURIComponent(res.project_id)}&style=blacked`;
-    els.saveResult.removeAttribute("hidden");
+  const result = await openSaveModal({
+    suggestedName: "untitled",
+    saver: (name) => projectionHandle.saveToBackend(name, BACKEND),
+  });
+  if (result?.ok) {
+    // Mirror the legacy sidebar UI for users who scroll/look there.
+    if (els.saveIdInput) els.saveIdInput.value = result.id;
+    if (els.openPlayer) els.openPlayer.href = `player.html?id=${encodeURIComponent(result.id)}&style=blacked`;
+    els.saveResult?.removeAttribute("hidden");
     setStatus("ok", "Saved");
-  } catch (e) { showError("Save failed: " + (e?.message || e)); }
+  } else if (result === null) {
+    setStatus("ok", "Save cancelled");
+  } else if (result?.error) {
+    showError("Save failed: " + result.error);
+  }
 });
 els.btnLoad?.addEventListener("click", async () => {
   const id = els.loadId?.value?.trim();
   if (!id || !projectionHandle) return;
   try {
     await projectionHandle.loadFromBackend(id, BACKEND);
+    // Track the load in the recent-projects history so the Player can show
+    // it as a quick-launch card.
+    addProject({ id, name: id, source: "loaded" });
     renderSurfaceList();
     markStepDone("camera"); markStepDone("scan"); markStepDone("assign");
     setStatus("ok", "Loaded");
@@ -919,6 +935,7 @@ els.btnSend?.addEventListener("click", async () => {
   if (!projectionHandle) return;
   try {
     const res = await projectionHandle.saveToBackend("mapper-quicksend", BACKEND);
+    addProject({ id: res.project_id, name: "mapper-quicksend", source: "saved" });
     const url = `player.html?id=${encodeURIComponent(res.project_id)}&style=blacked&auto=1`;
     window.open(url, "_blank");
     els.saveIdInput && (els.saveIdInput.value = res.project_id);

@@ -126,11 +126,13 @@ for (const page of ["index.html", "mapper.html", "player.html"]) {
   ok(/help_modal\.js/.test(html), `${page} mounts help_modal.js`);
 }
 
-// Player empty-state CTAs.
+// Player empty-state CTAs + Recent Projects panel.
 {
   const html = await readHtml("player.html");
   ok(/id=["']player-hint-demo["']/.test(html), "Player empty-state has #player-hint-demo button");
   ok(/href=["']mapper\.html["']/.test(html), "Player empty-state links to mapper.html");
+  ok(/id=["']player-hint-recent["']/.test(html), "Player empty-state has #player-hint-recent panel");
+  ok(/id=["']player-hint-recent-list["']/.test(html), "Player has #player-hint-recent-list for project rows");
 }
 
 // CSP from vercel.json should at least not be undefined in deploy config.

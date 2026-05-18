@@ -40,6 +40,7 @@ await checkModule("../public/onee_filter.js", ["OneEuroFilter", "OneEuroVec"]);
 await checkModule("../public/hand_filters.js", ["default", "HandGestureClassifier", "EMA", "computeApproximatePalmSize"]);
 await checkModule("../public/lib/perspt.js", ["default", "PerspT"]);
 await checkModule("../public/gaze_tracking.js", ["default", "GazeTracker"]);
+await checkModule("../public/recent_projects.js", ["addProject", "removeProject", "clearAll", "listProjects", "timeAgo", "onChange"]);
 
 // Maptastic touches `document` at runtime but the module body itself only
 // declares a `const Maptastic = function(config) { ... }` — defining the
