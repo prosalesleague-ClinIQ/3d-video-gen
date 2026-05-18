@@ -19,6 +19,7 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { ProjectionMode, PRESETS } from "./projection_mapping.js";
 import { HandTracker } from "./hand_tracking.js";
 import Maptastic from "./lib/maptastic.js";
+import { LIBRARY, CATEGORIES, getByCategory } from "./video_library.js";
 
 const BACKEND = window.__BACKEND_URL__ || "";
 
@@ -38,6 +39,25 @@ const els = {
 };
 
 function showError(msg) { els.errorBox.textContent = msg; els.errorBox.classList.add("visible"); setTimeout(() => els.errorBox.classList.remove("visible"), 4500); }
+
+// --- Onboarding overlay: shown on first visit, dismissed forever after ---
+// Survives reloads via localStorage. Auto-dismisses when the user clicks
+// 🎥 Camera (treating the first real interaction as implicit acknowledgement).
+function maybeShowOnboarding() {
+  try { if (localStorage.getItem("mapper-onboarding-seen") === "1") return; }
+  catch { /* localStorage blocked — show every visit, harmless */ }
+  const overlay = document.getElementById("mapper-onboarding");
+  if (overlay) overlay.hidden = false;
+}
+function dismissOnboarding() {
+  const overlay = document.getElementById("mapper-onboarding");
+  if (overlay) overlay.hidden = true;
+  try { localStorage.setItem("mapper-onboarding-seen", "1"); } catch {}
+}
+document.getElementById("mob-dismiss")?.addEventListener("click", dismissOnboarding);
+// Implicit-dismiss: the very first toolbar interaction also dismisses.
+document.getElementById("mapper-toolbar")?.addEventListener("click", dismissOnboarding, { once: true });
+maybeShowOnboarding();
 function setStatus(kind, text) {
   els.statusPill.className = "status-pill " + (kind === "err" ? "err" : kind === "warm" ? "warm" : "");
   els.statusPill.querySelector(".label").textContent = text;
@@ -601,17 +621,63 @@ els.holder.addEventListener("pointermove", (e) => {
 
 // --- Video picker modal -------------------------------------------------
 let _pickerSurfaceId = null;
+let _pickerCat = "all";     // active category filter
+let _pickerQuery = "";      // active search query (lowercased)
+
+// Render the category-tab row above the grid. Once.
+function renderPickerCategories() {
+  const el = document.getElementById("spv-cats");
+  if (!el || el.dataset.rendered === "1") return;
+  // SECURITY: CATEGORIES is a constant from our own bundle — no escape needed,
+  // but we mirror the escape pattern used elsewhere for consistency.
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
+  el.innerHTML = CATEGORIES.map((c) =>
+    `<button class="spv-cat-btn ${c.id === _pickerCat ? "active" : ""}" data-cat="${esc(c.id)}" title="${esc(c.name)}">${esc(c.icon)} ${esc(c.name)}</button>`
+  ).join("");
+  el.addEventListener("click", (ev) => {
+    const b = ev.target.closest("button[data-cat]"); if (!b) return;
+    _pickerCat = b.dataset.cat;
+    el.querySelectorAll(".spv-cat-btn").forEach((x) => x.classList.toggle("active", x === b));
+    renderPickerLibrary();
+  });
+  el.dataset.rendered = "1";
+}
+
+// Re-render the filtered preset grid. Called on category change + search input.
+function renderPickerLibrary() {
+  const grid = document.getElementById("spv-presets");
+  if (!grid) return;
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
+  let items = getByCategory(_pickerCat);
+  if (_pickerQuery) {
+    items = items.filter((v) => (v.name + " " + v.id).toLowerCase().includes(_pickerQuery));
+  }
+  if (!items.length) {
+    grid.innerHTML = `<div class="spv-empty">No videos match "${esc(_pickerQuery)}" in ${esc(_pickerCat)}.</div>`;
+    return;
+  }
+  grid.innerHTML = items.map((v) =>
+    `<button class="preset-chip" data-preset-uri="${esc(v.uri)}" title="${esc(v.id)}">${esc(v.name)}</button>`
+  ).join("");
+}
+
 function openVideoPicker(surfaceId) {
   _pickerSurfaceId = surfaceId;
   const modal = document.getElementById("surface-video-picker");
   const title = document.getElementById("spv-title");
   const s = projectionHandle.getSurfaces().find(x => x.id === surfaceId);
-  if (title && s) title.textContent = `Pick a video for "${s.name}"`;
+  if (title && s) {
+    // SECURITY: surface name may originate from a loaded project — escape it.
+    const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
+    title.innerHTML = `Pick a video for &quot;${esc(s.name)}&quot;`;
+  }
+  // Category tabs + library grid (one-time render of the tab row, refreshes
+  // grid every open in case the search/category were left in a weird state).
+  renderPickerCategories();
+  renderPickerLibrary();
+
   const presetsEl = document.getElementById("spv-presets");
   if (!presetsEl.dataset.rendered) {
-    presetsEl.innerHTML = PRESETS.map(p =>
-      `<button class="preset-chip" data-preset-uri="${p.uri}">${p.name}</button>`
-    ).join("");
     presetsEl.addEventListener("click", async (ev) => {
       const b = ev.target.closest("button[data-preset-uri]"); if (!b) return;
       try {
@@ -623,6 +689,15 @@ function openVideoPicker(surfaceId) {
       } catch (e) { showError("Preset failed: " + (e?.message || e)); }
     });
     presetsEl.dataset.rendered = "1";
+  }
+  // Wire the search input — live filter.
+  const searchEl = document.getElementById("spv-search");
+  if (searchEl && !searchEl.dataset.wired) {
+    searchEl.addEventListener("input", (ev) => {
+      _pickerQuery = ev.target.value.trim().toLowerCase();
+      renderPickerLibrary();
+    });
+    searchEl.dataset.wired = "1";
   }
   document.getElementById("spv-url").value = s?.source === "video" ? (s.uri || "") : "";
   document.getElementById("spv-file").value = "";

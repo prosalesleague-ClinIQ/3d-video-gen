@@ -39,8 +39,20 @@
     <div id="canvas-holder">
       <canvas id="gl"></canvas>
       <div id="player-hint" class="player-hint">
-        Enter a project ID above and click <strong>Load</strong>, or paste a link of the form <code>?id=XYZ</code>. <br>
-        Use <kbd>1</kbd>–<kbd>8</kbd> to switch style, <kbd>Space</kbd> to play/pause, <kbd>F</kbd> for fullscreen, <kbd>H</kbd> to hide the UI.
+        <div class="player-hint-title">▶ Open a Mapper project</div>
+        <div class="player-hint-body">
+          Paste a project ID in the top-right and click <strong>Load</strong>,
+          or share a link of the form <code>?id=XYZ</code>. Build a new one
+          in the <a href="mapper.html">Mapper</a> — point a camera at a wall,
+          scan, assign videos, hit Save.
+        </div>
+        <div class="player-hint-actions">
+          <a class="primary" href="mapper.html">🎯 Build in Mapper</a>
+          <button class="secondary" id="player-hint-demo" type="button" title="Load a small example project">✨ Try the demo</button>
+        </div>
+        <div class="player-hint-tip">
+          Shortcuts: <kbd>1</kbd>–<kbd>8</kbd> style · <kbd>Space</kbd> play/pause · <kbd>F</kbd> fullscreen · <kbd>?</kbd> help
+        </div>
       </div>
     </div>
 
@@ -79,5 +91,6 @@
 
   <script src="dashboard_3d.js?v=10"></script>
   <script type="module" src="player.js"></script>
+  <script type="module" src="help_modal.js"></script>
 </body>
 </html>

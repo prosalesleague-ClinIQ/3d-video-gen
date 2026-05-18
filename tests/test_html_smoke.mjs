@@ -105,6 +105,34 @@ for (const [page, ids] of Object.entries(REQUIRED_IDS)) {
   ok(/window\.top !== window\.self/.test(html), "cam-diag.html has frame-buster JS");
 }
 
+// Mapper welcome onboarding overlay (UX upgrade).
+{
+  const html = await readHtml("mapper.html");
+  ok(/id=["']mapper-onboarding["']/.test(html), "Mapper has #mapper-onboarding overlay");
+  ok(/id=["']mob-dismiss["']/.test(html), "Mapper onboarding has dismiss button #mob-dismiss");
+  ok(/4-corner|Save.*Player|Welcome to the Mapper/i.test(html), "Mapper onboarding includes the 4-step flow content");
+}
+
+// Video picker upgrade: category tabs + search input.
+{
+  const html = await readHtml("mapper.html");
+  ok(/id=["']spv-cats["']/.test(html), "Picker has category-tabs container #spv-cats");
+  ok(/id=["']spv-search["']/.test(html), "Picker has search input #spv-search");
+}
+
+// Help modal script is mounted on all 3 flagship pages.
+for (const page of ["index.html", "mapper.html", "player.html"]) {
+  const html = await readHtml(page);
+  ok(/help_modal\.js/.test(html), `${page} mounts help_modal.js`);
+}
+
+// Player empty-state CTAs.
+{
+  const html = await readHtml("player.html");
+  ok(/id=["']player-hint-demo["']/.test(html), "Player empty-state has #player-hint-demo button");
+  ok(/href=["']mapper\.html["']/.test(html), "Player empty-state links to mapper.html");
+}
+
 // CSP from vercel.json should at least not be undefined in deploy config.
 {
   const vercel = await readFile(join(ROOT, "vercel.json"), "utf8");

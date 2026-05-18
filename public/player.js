@@ -193,6 +193,41 @@ if (initialId) {
 }
 if (hideUi) document.body.classList.add("ui-hidden");
 
+// --- Empty-state "Try the demo" CTA ------------------------------------
+// Lightweight demo project: 3 surfaces showing different kaleido + flythrough
+// videos. Bypasses the backend (no save/load needed) by building the same
+// shape the backend would return and feeding it into the projection handle.
+// Useful for first-time visitors who land at /player.html with no ?id=.
+document.getElementById("player-hint-demo")?.addEventListener("click", async () => {
+  try {
+    setStatus("warm", "Building demo project…");
+    await ensureProjection();
+    // Three flat quads in NDC space — a quick "gallery wall" arrangement.
+    // addManualSurface auto-assigns the id; we capture each one to drive the
+    // following assignToSurface call.
+    const demoSurfaces = [
+      { uri: "https://res.cloudinary.com/demo/video/upload/e_kaleidoscope:12/fog.mp4",
+        polygon: [[-0.85, 0.6], [-0.2, 0.6], [-0.2, -0.6], [-0.85, -0.6]] },
+      { uri: "https://res.cloudinary.com/demo/video/upload/e_accelerate:-60/sea_turtle.mp4",
+        polygon: [[-0.05, 0.6], [0.55, 0.6], [0.55, -0.6], [-0.05, -0.6]] },
+      { uri: "https://res.cloudinary.com/demo/video/upload/e_boomerang/elephants.mp4",
+        polygon: [[0.65, 0.6], [0.95, 0.6], [0.95, -0.6], [0.65, -0.6]] },
+    ];
+    for (const s of demoSurfaces) {
+      const surf = projectionHandle.addManualSurface(s.polygon);
+      if (surf?.id) {
+        await projectionHandle.assignToSurface(surf.id, { source: "video", uri: s.uri });
+      }
+    }
+    els.hint.style.display = "none";
+    els.info.textContent = "Demo project · 3 surfaces · kaleido + drift + flythrough";
+    setTimeout(() => projectionHandle.playAll(), 300);
+    setStatus("ok", "Demo loaded");
+  } catch (e) {
+    showError("Demo failed: " + (e?.message || e));
+  }
+});
+
 // --- Projection calibration carry-over ---------------------------------
 // Whatever the user calibrated in the Mapper (4-corner Maptastic drag) is
 // auto-saved to localStorage["maptastic.layers"]. Player reads it once at

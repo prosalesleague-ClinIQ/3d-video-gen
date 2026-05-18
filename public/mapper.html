@@ -49,6 +49,24 @@
       <canvas id="gl"></canvas>
       <div class="fps-counter" id="fps"></div>
 
+      <!-- Onboarding overlay — visible only on a user's first visit.
+           Dismissable by clicking 🎥 Camera or the "Got it" button.
+           Persisted in localStorage["mapper-onboarding-seen"] so returning
+           visitors don't see it again. -->
+      <div id="mapper-onboarding" class="mapper-onboarding" hidden>
+        <div class="mapper-onboarding-card">
+          <div class="mob-header">👋 Welcome to the Mapper</div>
+          <div class="mob-steps">
+            <div class="mob-step"><span class="mob-num">1</span> Click <strong>🎥 Camera</strong> and allow webcam access.</div>
+            <div class="mob-step"><span class="mob-num">2</span> Point at a wall, then click <strong>🤖 Scan</strong>.</div>
+            <div class="mob-step"><span class="mob-num">3</span> Click any rectangle to pick a video.</div>
+            <div class="mob-step"><span class="mob-num">4</span> <strong>Save</strong>, then open the link in <strong>Player</strong>.</div>
+          </div>
+          <div class="mob-tip">Press <kbd>?</kbd> any time for the full keyboard guide.</div>
+          <button class="primary mob-dismiss" id="mob-dismiss">Got it →</button>
+        </div>
+      </div>
+
       <!-- FULL MAPPING TOOLBAR — every operation grouped by purpose -->
       <div id="mapper-toolbar" class="mapper-toolbar projection-stepper">
         <div class="tb-section">
@@ -104,7 +122,14 @@
       <!-- Video picker modal -->
       <div id="surface-video-picker" class="surface-video-picker hidden">
         <div class="spv-header" id="spv-title">Pick a video for this surface</div>
-        <div class="spv-row" id="spv-presets"></div>
+        <!-- Category tabs — populated from video_library.js#CATEGORIES at boot. -->
+        <div class="spv-row spv-cats" id="spv-cats"></div>
+        <!-- Search filter (live) over the LIBRARY (44 videos). -->
+        <div class="spv-row spv-inline">
+          <input type="search" id="spv-search" placeholder="Search videos… (e.g. 'kaleido', 'fog', 'dog')" autocomplete="off" />
+        </div>
+        <!-- Filtered preset grid — populated by mapper.js#renderPickerLibrary. -->
+        <div class="spv-row spv-grid" id="spv-presets"></div>
         <div class="spv-row spv-inline">
           <input type="url" id="spv-url" placeholder="Paste a video or image URL (CORS-enabled)" />
           <input type="file" id="spv-file" accept="video/*,image/*" />
@@ -162,6 +187,7 @@
   <div id="status-pill" class="status-pill"><span class="dot"></span><span class="label">Ready</span></div>
 
   <script src="dashboard_3d.js?v=10"></script>
-  <script type="module" src="mapper.js?v=9"></script>
+  <script type="module" src="mapper.js?v=10"></script>
+  <script type="module" src="help_modal.js"></script>
 </body>
 </html>
