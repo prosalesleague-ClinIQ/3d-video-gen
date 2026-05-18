@@ -4,3 +4,6 @@ pydantic>=2.5
 anthropic>=0.40
 python-multipart>=0.0.9
 pillow>=10.0
+httpx>=0.27
+# trellis-local-fallback: trimesh>=4.0
+# trellis-local-fallback: plyfile>=1.0

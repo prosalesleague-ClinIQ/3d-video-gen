@@ -1,0 +1,574 @@
+/* ==========================================================================
+   Dashboard 3D v3 — Avatar IMAX glass that ACTUALLY pops
+   - Each panel is a thin transparent slab with a luminous rim
+   - Per-panel hover tilt (JS sets --px / --py per-element)
+   - Strong global parallax — nav / sidebar / modal at very different Z so
+     they slide independently as you move the mouse
+   - No backdrop-filter on transformed elements (silently fails in WebKit);
+     the glass effect comes from low alpha + bright rim + outer glow + drop
+     shadow + a fixed-position blurred backdrop pseudo where it works
+   ========================================================================== */
+
+:root {
+  --avatar-bg-0:   #01020a;
+  --avatar-bg-1:   #050a1f;
+  --avatar-bg-2:   #0a0520;
+  --rim-cyan:      rgba(140, 230, 255, 0.95);
+  --rim-violet:    rgba(200, 150, 255, 0.85);
+  --rim-glow:      rgba(120, 220, 255, 0.65);
+  --avatar-ink:    rgba(235, 248, 255, 0.97);
+
+  /* Global parallax (set by dashboard_3d.js) — [-1, 1]. */
+  --mx: 0;
+  --my: 0;
+
+  /* Per-panel hover position (set per element by dashboard_3d.js) — [-1, 1]. */
+  --px: 0;
+  --py: 0;
+
+  /* Tilt amplitudes — generous so it actually feels 3D. */
+  --tilt-amp:    8deg;        /* global parallax tilt */
+  --tilt-hover:  14deg;       /* per-panel hover tilt */
+}
+
+/* ----- Body / scaffolding ----- */
+body.app-mapper,
+body.app-player,
+body.app-studio {
+  background:
+    radial-gradient(ellipse 1200px 800px at 22% 15%, rgba(92, 204, 255, 0.22), transparent 60%),
+    radial-gradient(ellipse 1000px 700px at 78% 85%, rgba(176, 122, 255, 0.22), transparent 60%),
+    radial-gradient(ellipse 1400px 900px at 50% 50%, rgba(10, 25, 60, 0.65), transparent 70%),
+    linear-gradient(180deg, var(--avatar-bg-0) 0%, var(--avatar-bg-1) 50%, var(--avatar-bg-2) 100%) !important;
+  background-attachment: fixed !important;
+  color: var(--avatar-ink) !important;
+  /* IMPORTANT: do NOT put `transform-style: preserve-3d` on body — it forces
+     the entire document into a single composited layer, which can crash
+     hardware-accelerated WebGL canvas context creation in Chrome on certain
+     GPU drivers. We use `perspective` only, which is safe. */
+  perspective: 1400px;
+  perspective-origin: 50% 38%;
+}
+/* NOTE: previously had `transform-style: preserve-3d` on
+   `.mapper-viewer / .player-viewer / .page` — that put the WebGL canvas's
+   parent into a 3D-rendering context, forcing layer-composited rendering
+   alongside backdrop-filter cousins. On integrated GPUs this caused the
+   page to become unresponsive. Each panel below has its own preserve-3d
+   so nested children still nest in 3D where it matters. */
+html:has(body.app-studio),
+html:has(body.app-mapper),
+html:has(body.app-player) {
+  background: var(--avatar-bg-0) !important;
+  background-image: none !important;
+}
+
+/* Starfield (very far, no transform context) */
+body.app-mapper::before,
+body.app-player::before,
+body.app-studio::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(2px 2px at 12% 23%, rgba(255,255,255,0.95), transparent 55%),
+    radial-gradient(2px 2px at 74% 11%, rgba(255,255,255,0.85), transparent 55%),
+    radial-gradient(1px 1px at 42% 61%, rgba(255,255,255,0.65), transparent 55%),
+    radial-gradient(2.5px 2.5px at 88% 48%, rgba(200,230,255,0.95), transparent 55%),
+    radial-gradient(1.5px 1.5px at 8% 78%, rgba(255,255,255,0.7), transparent 55%),
+    radial-gradient(2px 2px at 61% 84%, rgba(255,255,255,0.75), transparent 55%),
+    radial-gradient(1px 1px at 29% 92%, rgba(255,255,255,0.7), transparent 55%),
+    radial-gradient(2.5px 2.5px at 95% 72%, rgba(180,210,255,0.95), transparent 55%),
+    radial-gradient(1.5px 1.5px at 55% 35%, rgba(255,255,255,0.6), transparent 55%);
+  background-size: 520px 420px;
+  animation: stars-drift 240s linear infinite;
+  opacity: 0.85;
+  z-index: 0;
+}
+@keyframes stars-drift {
+  to { background-position: -520px -420px, -520px -420px, -520px -420px, -520px -420px, -520px -420px, -520px -420px, -520px -420px, -520px -420px, -520px -420px; }
+}
+
+/* Bioluminescent spores */
+body.app-mapper::after,
+body.app-player::after,
+body.app-studio::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(7px 7px at 18% 72%, rgba(120, 240, 255, 0.7), transparent 60%),
+    radial-gradient(6px 6px at 62% 38%, rgba(180, 140, 255, 0.7), transparent 60%),
+    radial-gradient(8px 8px at 81% 82%, rgba(120, 255, 210, 0.7), transparent 60%);
+  background-size: 1100px 850px;
+  animation: spores 40s ease-in-out infinite alternate;
+  opacity: 0.85;
+  z-index: 1;
+}
+@keyframes spores {
+  0%, 100% { background-position: 0 100%, 0 0, 100% 100%; }
+  50%      { background-position: 0 -80%, -60% 60%, 60% -40%; }
+}
+
+/* ====================================================================
+   GLASS PANEL recipe — applied to every floating chrome
+   ==================================================================== */
+
+/* Common glass surface — used by all the panel selectors below */
+.app-studio nav.app-nav,
+.app-mapper nav.app-nav,
+.app-player nav.app-nav,
+.mapper-sidebar,
+.player-sidebar,
+.surface-video-picker,
+.app-mapper #projection-stepper,
+.app-player #projection-stepper,
+.app-mapper #surface-list-panel,
+.app-player #surface-list-panel,
+.app-mapper #playback-hud,
+.app-player #playback-hud,
+.app-mapper #pov-calibration,
+.app-player #pov-calibration,
+.app-mapper #projection-calibration,
+.app-player #projection-calibration {
+  /* Real frosted glass — heavy backdrop blur where browser allows */
+  background: linear-gradient(160deg, rgba(20, 36, 78, 0.10) 0%, rgba(8, 14, 36, 0.18) 100%) !important;
+  border: 1px solid var(--rim-cyan) !important;
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.65),
+    0 8px 24px rgba(92, 204, 255, 0.35),
+    0 0 50px rgba(140, 230, 255, 0.22),
+    inset 0 1px 0 rgba(220, 245, 255, 0.45),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.55),
+    inset 0 0 0 1px rgba(140, 230, 255, 0.15) !important;
+  backdrop-filter: blur(14px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(160%) !important;
+  border-radius: 14px !important;
+  position: relative;
+}
+
+/* Inner top edge highlight — adds the "lit edge" look */
+.app-studio nav.app-nav::after,
+.app-mapper nav.app-nav::after,
+.app-player nav.app-nav::after,
+.mapper-sidebar::after,
+.player-sidebar::after,
+.surface-video-picker::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    linear-gradient(180deg, rgba(220, 245, 255, 0.12) 0%, transparent 14%),
+    radial-gradient(ellipse at 50% 0%, rgba(120, 220, 255, 0.22), transparent 60%);
+  mix-blend-mode: screen;
+}
+
+/* ====================================================================
+   PARALLAX — different Z and tilt strength per layer = real 3D
+   ==================================================================== */
+
+/* Nav: STATIC. Sticky positioning needs to NOT be combined with 3D transforms
+   (rotate makes it physically tilt out of view; translateZ creates a new
+   containing block that breaks sticky on Chrome). The glass + glow look is
+   plenty without parallax. */
+.app-studio nav.app-nav,
+.app-mapper nav.app-nav,
+.app-player nav.app-nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  transform: none !important;
+  border-top: none !important;
+  border-radius: 0 0 18px 18px !important;
+}
+
+/* Sidebars: mid Z, strong rotateY tracking the cursor */
+.mapper-sidebar,
+.player-sidebar {
+  transform:
+    translateZ(50px)
+    rotateY(calc(var(--mx) * var(--tilt-amp) * -1.4))
+    rotateX(calc(var(--my) * var(--tilt-amp) * 0.4))
+    !important;
+  transform-style: preserve-3d !important;
+  transition: transform 0.35s cubic-bezier(.2,.8,.2,1) !important;
+}
+
+/* Floating overlays — moderate Z lift, full parallax */
+.app-mapper #projection-stepper,
+.app-player #projection-stepper,
+.app-mapper #surface-list-panel,
+.app-player #surface-list-panel,
+.app-mapper #playback-hud,
+.app-player #playback-hud,
+.app-mapper #pov-calibration,
+.app-player #pov-calibration,
+.app-mapper #projection-calibration,
+.app-player #projection-calibration {
+  transform:
+    translateZ(95px)
+    rotateX(calc(var(--my) * var(--tilt-amp) * -0.7))
+    rotateY(calc(var(--mx) * var(--tilt-amp) * 0.7))
+    !important;
+  transform-style: preserve-3d;
+  transition: transform 0.4s cubic-bezier(.2,.8,.2,1) !important;
+}
+
+/* Modal — way out in front, gentle tilt */
+.surface-video-picker {
+  transform:
+    translate(-50%, -50%) translateZ(280px)
+    rotateX(calc(var(--my) * var(--tilt-amp) * -0.3))
+    rotateY(calc(var(--mx) * var(--tilt-amp) * 0.3))
+    !important;
+  transition: transform 0.45s cubic-bezier(.2,.8,.2,1) !important;
+  box-shadow:
+    0 70px 140px rgba(0, 0, 0, 0.9),
+    0 30px 70px rgba(92, 204, 255, 0.55),
+    0 0 110px rgba(176, 122, 255, 0.45),
+    0 0 0 1px rgba(176, 122, 255, 0.2),
+    inset 0 1px 0 rgba(220, 245, 255, 0.5),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.65) !important;
+}
+
+/* Sidebar luminous rim beam — static (animation removed; was running
+   `filter: blur` interpolation continuously which is expensive). */
+.mapper-sidebar::before,
+.player-sidebar::before {
+  content: "";
+  position: absolute;
+  left: -1px; top: 6%; bottom: 6%; width: 2px;
+  background: linear-gradient(180deg, transparent 0%, var(--rim-cyan) 25%, var(--rim-violet) 55%, var(--rim-cyan) 80%, transparent 100%);
+  filter: blur(2px);
+  box-shadow: 0 0 28px var(--rim-cyan), 0 0 60px var(--rim-violet);
+  pointer-events: none;
+}
+
+/* ====================================================================
+   PER-PANEL HOVER TILT — JS sets --px / --py on the hovered element
+   only, so cards visibly tilt under the cursor
+   ==================================================================== */
+
+[data-tilt],
+.style-chip,
+.preset-chip,
+.stereo-chip,
+.surface-list-item {
+  transform-style: preserve-3d;
+  transition: transform 0.18s cubic-bezier(.2,.8,.2,1), box-shadow 0.22s, background 0.22s;
+}
+[data-tilt]:hover,
+.style-chip:hover,
+.preset-chip:hover,
+.stereo-chip:hover,
+.surface-list-item:hover {
+  transform:
+    translateZ(36px)
+    rotateX(calc(var(--py) * var(--tilt-hover) * -1))
+    rotateY(calc(var(--px) * var(--tilt-hover)))
+    !important;
+}
+
+/* Ink color for sidebar headings / labels */
+.mapper-sidebar h3, .player-sidebar h3 {
+  text-shadow: 0 0 18px rgba(140, 230, 255, 0.85);
+  letter-spacing: 0.14em;
+  color: rgba(200, 240, 255, 1) !important;
+}
+
+/* Brand glow */
+.app-nav-brand { letter-spacing: 0.08em; text-shadow: 0 0 18px rgba(176, 122, 255, 0.85); }
+.app-nav-brand::before { text-shadow: 0 0 26px rgba(176, 122, 255, 1); }
+
+.app-nav-links a {
+  transition: transform 0.22s cubic-bezier(.2,.8,.2,1), background 0.2s, box-shadow 0.2s, color 0.2s;
+  transform: translateZ(0);
+  position: relative;
+}
+.app-nav-links a:hover {
+  transform: translateZ(24px) !important;
+  background: rgba(120, 220, 255, 0.22) !important;
+  box-shadow: 0 12px 32px rgba(92, 204, 255, 0.4), 0 0 26px rgba(120, 220, 255, 0.5) !important;
+  color: #fff !important;
+}
+.app-nav-links a[aria-current=page] {
+  background: linear-gradient(135deg, rgba(155, 105, 220, 0.92) 0%, rgba(91, 47, 159, 0.92) 100%) !important;
+  box-shadow:
+    0 14px 38px rgba(139, 90, 200, 0.75),
+    0 0 38px rgba(176, 122, 255, 0.65),
+    inset 0 1px 0 rgba(255,255,255,0.5),
+    inset 0 -1px 0 rgba(0,0,0,0.4) !important;
+}
+
+/* Side keys */
+.side-keys kbd {
+  background: linear-gradient(180deg, rgba(20, 40, 80, 0.5) 0%, rgba(5, 10, 30, 0.5) 100%) !important;
+  border: 1px solid rgba(140, 220, 255, 0.5) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(200, 240, 255, 0.4),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5),
+    0 0 14px rgba(120, 220, 255, 0.4) !important;
+  text-shadow: 0 0 10px rgba(140, 220, 255, 0.95);
+  backdrop-filter: blur(6px);
+}
+
+/* Canvas holder MUST stay free of backdrop-filter / preserve-3d to avoid
+   Chrome breaking the WebGL canvas's GPU surface allocation. We give it a
+   plain stacking context and let the panels above it do the 3D work. */
+#canvas-holder {
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
+  background: transparent;
+}
+#gl, canvas#gl {
+  /* Make sure the canvas itself is in its own paint layer and never
+     accidentally gets backdrop-filter or 3D transforms inherited. */
+  position: relative;
+  z-index: 0;
+  transform: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  display: block;
+}
+
+/* ====================================================================
+   BUTTONS — bevel + pop
+   ==================================================================== */
+.mode-btn,
+.step-btn,
+button.secondary,
+.preset-chip,
+.style-chip,
+.stereo-chip,
+.hud-pill,
+.sli-btn,
+.surface-list-item {
+  background: linear-gradient(180deg, rgba(38, 58, 100, 0.4) 0%, rgba(12, 22, 50, 0.4) 100%) !important;
+  border: 1px solid rgba(140, 220, 255, 0.45) !important;
+  color: rgba(225, 245, 255, 0.97) !important;
+  box-shadow:
+    0 10px 22px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(220, 245, 255, 0.35),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5) !important;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6), 0 0 10px rgba(120, 220, 255, 0.25) !important;
+  backdrop-filter: blur(10px) saturate(160%);
+  transition: transform 0.18s cubic-bezier(.2,.8,.2,1), box-shadow 0.22s, background 0.22s, color 0.22s !important;
+  transform: translateZ(0);
+  will-change: transform, box-shadow;
+}
+.mode-btn:hover,
+.step-btn:hover:not([disabled]),
+button.secondary:hover,
+.hud-pill:hover {
+  transform: translateZ(30px) !important;
+  background: linear-gradient(180deg, rgba(60, 95, 160, 0.6) 0%, rgba(28, 48, 100, 0.6) 100%) !important;
+  box-shadow:
+    0 24px 48px rgba(0, 0, 0, 0.65),
+    0 0 38px rgba(92, 204, 255, 0.6),
+    0 0 0 1px rgba(180, 240, 255, 0.7),
+    inset 0 1px 0 rgba(230, 250, 255, 0.55),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5) !important;
+  color: #fff !important;
+}
+.mode-btn:active,
+.step-btn:active,
+button.secondary:active {
+  transform: translateZ(2px) scale(0.97) !important;
+  box-shadow: inset 0 4px 10px rgba(0,0,0,0.6) !important;
+}
+
+/* Active / pressed — Avatar violet */
+.mode-btn.active,
+.step-btn.active,
+.step-btn.done,
+.style-chip.active,
+.stereo-chip.active,
+.quality-pill button[aria-pressed=true],
+.hdri-pill button[aria-pressed=true],
+.palette-pill button[aria-pressed=true],
+.stereo-pill button[aria-pressed=true] {
+  background: linear-gradient(180deg, rgba(165, 115, 230, 0.97) 0%, rgba(91, 47, 159, 0.97) 100%) !important;
+  border-color: rgba(225, 185, 255, 0.85) !important;
+  color: #fff !important;
+  box-shadow:
+    0 16px 42px rgba(139, 90, 200, 0.82),
+    0 0 44px rgba(176, 122, 255, 0.7),
+    0 0 0 1px rgba(220, 180, 255, 0.55),
+    inset 0 1px 0 rgba(255,255,255,0.55),
+    inset 0 -1px 0 rgba(0,0,0,0.4) !important;
+  text-shadow: 0 1px 0 rgba(0,0,0,0.35), 0 0 14px rgba(255,255,255,0.5);
+}
+.step-btn.done {
+  background: linear-gradient(180deg, rgba(95, 240, 165, 0.92) 0%, rgba(40, 145, 100, 0.95) 100%) !important;
+  border-color: rgba(160, 255, 200, 0.75) !important;
+  box-shadow:
+    0 16px 36px rgba(60, 200, 130, 0.6),
+    0 0 36px rgba(140, 255, 190, 0.5),
+    inset 0 1px 0 rgba(255,255,255,0.45),
+    inset 0 -1px 0 rgba(0,0,0,0.35) !important;
+}
+
+/* Primary CTA */
+button.primary,
+a.primary {
+  background: linear-gradient(180deg, rgba(165, 115, 230, 1) 0%, rgba(91, 47, 159, 1) 100%) !important;
+  border: 1px solid rgba(225, 185, 255, 0.8) !important;
+  color: #fff !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.03em !important;
+  box-shadow:
+    0 16px 40px rgba(139, 90, 200, 0.8),
+    0 0 50px rgba(176, 122, 255, 0.55),
+    inset 0 1px 0 rgba(255,255,255,0.5),
+    inset 0 -1px 0 rgba(0,0,0,0.35) !important;
+  text-shadow: 0 1px 0 rgba(0,0,0,0.35), 0 0 16px rgba(255,255,255,0.5) !important;
+  transition: transform 0.22s cubic-bezier(.2,.8,.2,1), box-shadow 0.22s !important;
+  transform: translateZ(0);
+}
+button.primary:hover,
+a.primary:hover {
+  transform: translateZ(34px) !important;
+  box-shadow:
+    0 30px 60px rgba(139, 90, 200, 0.95),
+    0 0 70px rgba(176, 122, 255, 0.75),
+    inset 0 1px 0 rgba(255,255,255,0.6),
+    inset 0 -1px 0 rgba(0,0,0,0.35) !important;
+}
+
+/* Style / preset chip lift */
+.style-chip, .preset-chip { transform: translateZ(12px); }
+.style-chip:hover, .preset-chip:hover { transform: translateZ(40px) !important; }
+
+/* Corner-drag dots */
+.projection-corner-dot {
+  background: radial-gradient(circle at 30% 30%, #f0fbff 0%, #5cf 45%, #1a6a9c 100%) !important;
+  box-shadow:
+    0 0 0 2px rgba(255,255,255,0.7),
+    0 0 32px rgba(92, 204, 255, 1),
+    0 0 60px rgba(92, 204, 255, 0.6),
+    0 8px 22px rgba(0, 0, 0, 0.7) !important;
+}
+
+/* Sliders */
+input[type=range] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  background: linear-gradient(90deg, rgba(92, 204, 255, 0.55), rgba(176, 122, 255, 0.55)) !important;
+  border-radius: 3px;
+  outline: none;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.7), 0 0 16px rgba(92,204,255,0.35);
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #eafaff 0%, #5cf 50%, #1a5a8c 100%);
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.45), 0 0 22px rgba(92,204,255,1), 0 0 42px rgba(92,204,255,0.6), 0 4px 10px rgba(0,0,0,0.7);
+  cursor: pointer; transition: transform 0.14s;
+}
+input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
+input[type=range]::-moz-range-thumb {
+  width: 20px; height: 20px; border: none; border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #eafaff 0%, #5cf 50%, #1a5a8c 100%);
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.45), 0 0 22px rgba(92,204,255,1), 0 0 42px rgba(92,204,255,0.6), 0 4px 10px rgba(0,0,0,0.7);
+  cursor: pointer;
+}
+
+/* Mode buttons + toolbar rows ride atop everything */
+.mode-btn { transform: translateZ(20px) !important; transform-style: preserve-3d; }
+.viewer-controls { transform: translateZ(35px); transform-style: preserve-3d; }
+.toolbar-row     { transform: translateZ(20px); transform-style: preserve-3d; transition: transform 0.25s; }
+.toolbar-row:hover { transform: translateZ(45px) !important; }
+
+/* Status / error pills */
+.status-pill, .error-box {
+  transform: translateZ(140px) !important;
+  background: rgba(20, 32, 60, 0.32) !important;
+  border: 1px solid rgba(140, 220, 255, 0.6) !important;
+  box-shadow:
+    0 22px 48px rgba(0,0,0,0.7),
+    0 0 36px rgba(92,204,255,0.45),
+    inset 0 1px 0 rgba(255,255,255,0.32),
+    inset 0 -1px 0 rgba(0,0,0,0.5) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+}
+
+/* Studio chrome (prompt / director / storyboard / scene-graph) — glass */
+.prompt-panel, .director-panel, .storyboard, .scene-graph-panel {
+  background: linear-gradient(160deg, rgba(20, 36, 78, 0.12) 0%, rgba(8, 14, 36, 0.2) 100%) !important;
+  border: 1px solid rgba(140, 220, 255, 0.32) !important;
+  backdrop-filter: blur(28px) saturate(180%) brightness(1.1) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(180%) brightness(1.1) !important;
+  box-shadow:
+    0 24px 56px rgba(0,0,0,0.6),
+    0 0 30px rgba(92,204,255,0.2),
+    inset 0 1px 0 rgba(220,245,255,0.3) !important;
+  transform: translateZ(30px);
+  transform-style: preserve-3d;
+}
+
+/* ==========================================================================
+   FULL MAPPING TOOLBAR — sections with labels (Capture / Detect / Surfaces /
+   Assign / View / Playback / Output)
+   ========================================================================== */
+.mapper-toolbar {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  max-width: calc(100% - 24px);
+  align-items: flex-end;
+}
+.mapper-toolbar .tb-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mapper-toolbar .tb-section + .tb-section { padding-left: 14px; border-left: 1px solid rgba(140, 220, 255, 0.18); }
+.mapper-toolbar .tb-label {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: rgba(140, 220, 255, 0.72);
+  text-transform: uppercase;
+  text-shadow: 0 0 8px rgba(120, 220, 255, 0.4);
+  margin-bottom: 2px;
+}
+.mapper-toolbar .tb-section > .step-btn {
+  display: inline-block;
+  white-space: nowrap;
+  font-size: 11px;
+  padding: 5px 10px;
+  margin: 0;
+}
+.mapper-toolbar .tb-section { display: inline-flex; flex-direction: row; flex-wrap: wrap; gap: 4px; }
+.mapper-toolbar .tb-section .tb-label { width: 100%; }
+
+/* Reference grid overlay (toolbar View → Grid) */
+#canvas-holder.show-grid::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+  background-image:
+    linear-gradient(to right,  rgba(140,220,255,0.16) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(140,220,255,0.16) 1px, transparent 1px),
+    linear-gradient(to right,  rgba(140,220,255,0.10) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(140,220,255,0.10) 1px, transparent 1px);
+  background-size: 80px 80px, 80px 80px, 16px 16px, 16px 16px;
+  mix-blend-mode: screen;
+}
+
+/* HUD-toggle hide utility */
+.force-hidden { display: none !important; }
+
+/* Reduce motion */
+@media (prefers-reduced-motion: reduce) {
+  :root { --tilt-amp: 0deg; --tilt-hover: 0deg; }
+  body::before, body::after, .mapper-sidebar::before, .player-sidebar::before { animation: none !important; }
+}

@@ -1,0 +1,57 @@
+name: tests
+
+on:
+  push:
+    branches: [main, security-skill-sweep]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # The --quick flag skips live-backend smoke (which would either need
+      # the HF Space deployed or a service container; the in-suite client
+      # tier alone covers ~170 assertions across PerspT, hand classifier,
+      # gaze, imports, HTML smoke, and the E2E scan→map→project flow).
+      - name: Run test suite
+        run: bash tests/run_all.sh --quick
+
+      # Quick lint of Python backend (syntax-only — same as run_all does).
+      # Pulled out so a Python failure shows up as its own step.
+      - name: Backend syntax
+        run: python3 -c "import ast, sys; ast.parse(open('demo-service/app.py').read()); print('OK')"
+
+  # Live-backend tier — runs only on workflow_dispatch (manual trigger) so
+  # CI doesn't depend on the HF Space staying up.
+  live-backend:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Live backend smoke
+        env:
+          BACKEND_URL: ${{ vars.BACKEND_URL || 'https://prosalesleague-3d-video-gen.hf.space' }}
+        run: bash tests/run_all.sh

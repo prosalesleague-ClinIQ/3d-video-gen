@@ -87,6 +87,38 @@ h1 {
   50% { opacity: 0.55; transform: scale(1.35); }
 }
 
+/* tracker-status — small live pill that shows which tracker tier is active +
+ * the current frame rate. The icons go dim (opacity 0.25) when their tracker
+ * isn't running and turn cyan + glow when it is. */
+.tracker-status-pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 0.78rem; padding: 5px 12px; border-radius: 100px;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  margin-left: 8px;
+  cursor: default;
+  transition: border-color 200ms ease;
+}
+.tracker-status-pill .ts-icon {
+  font-size: 0.95rem; line-height: 1;
+  opacity: 0.25;
+  filter: grayscale(1) brightness(0.7);
+  transition: opacity 180ms ease, filter 180ms ease, text-shadow 180ms ease;
+}
+.tracker-status-pill .ts-icon[data-on="1"] {
+  opacity: 1;
+  filter: none;
+  text-shadow: 0 0 8px rgba(34, 211, 238, 0.6);
+}
+.tracker-status-pill .ts-fps {
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  padding-left: 8px;
+  color: rgba(255, 255, 255, 0.8);
+}
+.tracker-status-pill:hover { border-color: rgba(34, 211, 238, 0.4); }
+
 /* ---------- Cards (shared shell) ---------- */
 
 .prompt-bar, .director-panel, .viewer, .storyboard, .card.details {
@@ -652,3 +684,119 @@ select:focus, select:hover {
   .control-grid { grid-template-columns: 1fr; }
   .scene-card { flex: 0 0 140px; }
 }
+
+/* Stream 4/7/10: realism upgrade UI */
+.toolbar-row { display:flex; align-items:center; gap:10px; padding:6px 10px; }
+.toolbar-row .toolbar-label { font-size:11px; letter-spacing:0.08em; text-transform:uppercase; color:#aaa; min-width:58px; }
+#scene-scale, #kaleido-intensity { flex:1; max-width:220px; }
+#scene-scale-val, #kaleido-intensity-val { font-size:11px; color:#ccc; min-width:52px; text-align:right; }
+.quality-pill, .hdri-pill { display:inline-flex; gap:4px; }
+.quality-pill button, .hdri-pill button { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#ddd; font-size:11px; padding:4px 10px; border-radius:6px; cursor:pointer; }
+.quality-pill button[aria-pressed=true], .hdri-pill button[aria-pressed=true] { background:#5b2f9f; border-color:#7a42c0; color:#fff; }
+.quality-pill button:hover, .hdri-pill button:hover { background:rgba(255,255,255,0.10); }
+#btn-pov.active { background:#5b2f9f; border-color:#7a42c0; color:#fff; }
+.pov-calibration { display:flex; align-items:center; gap:8px; padding:6px 10px; font-size:12px; color:#bbb; }
+.pov-status { flex:1; color:#89b7ff; }
+.projection-calibration { display:none; flex-wrap:wrap; }
+.projection-calibration.active { display:flex; }
+#btn-fullscreen.active { background:#5b2f9f; border-color:#7a42c0; color:#fff; }
+#canvas-holder:fullscreen,
+#canvas-holder:-webkit-full-screen { background:#060612; }
+#canvas-holder:fullscreen #gl,
+#canvas-holder:-webkit-full-screen #gl { width:100vw !important; height:100vh !important; }
+.projection-corner-dot { box-shadow: 0 0 0 2px rgba(0,0,0,0.4), 0 0 8px rgba(92,204,255,0.6); }
+
+/* ---------- v3 AI mapper: stepper, modal, surface list ---------- */
+.projection-stepper {
+  position: absolute; top: 12px; left: 12px; z-index: 30;
+  display: flex; gap: 8px; padding: 6px;
+  background: rgba(12, 10, 20, 0.72); border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 10px; backdrop-filter: blur(6px);
+}
+.step-btn {
+  background: rgba(255,255,255,0.06); color: #ddd; border: 1px solid rgba(255,255,255,0.12);
+  font-size: 12px; padding: 6px 12px; border-radius: 6px; cursor: pointer; transition: all 0.15s;
+}
+.step-btn:hover:not([disabled]) { background: rgba(255,255,255,0.12); }
+.step-btn.active { background: #5b2f9f; border-color: #7a42c0; color: #fff; }
+.step-btn.done  { background: rgba(64,192,112,0.25); border-color: rgba(64,192,112,0.5); color: #c7f5d5; }
+.step-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+
+.surface-video-picker {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 40;
+  width: min(520px, 92%); max-height: 80vh; overflow: auto;
+  background: rgba(12, 10, 20, 0.94); border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 14px; padding: 18px; color: #eee;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.surface-video-picker.hidden { display: none; }
+.spv-header { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
+.spv-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.spv-row.spv-inline { align-items: center; }
+.spv-row input[type=url] { flex: 1; min-width: 180px; padding: 6px 10px; font-size: 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.04); color: #fff; }
+.spv-row input[type=file] { font-size: 11px; color: #bbb; }
+.spv-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.08); }
+.preset-chip {
+  background: rgba(255,255,255,0.06); color: #ddd; border: 1px solid rgba(255,255,255,0.12);
+  font-size: 12px; padding: 6px 10px; border-radius: 14px; cursor: pointer;
+}
+.preset-chip:hover { background: rgba(255,255,255,0.14); }
+.spv-pro { gap: 14px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.08); }
+.spv-pro label { display: flex; align-items: center; gap: 6px; color: #bbb; font-size: 11px; flex: 1; }
+.spv-pro input[type=range] { flex: 1; accent-color: #5b2f9f; }
+.spv-pro input[type=color] { width: 32px; height: 24px; border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; background: transparent; padding: 0; cursor: pointer; }
+.spv-toggle { white-space: nowrap; }
+.spv-toggle input[type=checkbox] { accent-color: #5b2f9f; }
+
+.surface-list-panel {
+  position: absolute; top: 12px; right: 12px; z-index: 30;
+  min-width: 200px; max-width: 260px; max-height: 50vh; overflow: auto;
+  background: rgba(12, 10, 20, 0.72); border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 10px; padding: 10px; backdrop-filter: blur(6px);
+}
+.slp-header { font-size: 11px; color: #89b7ff; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.08em; }
+.surface-list { display: flex; flex-direction: column; gap: 4px; }
+.surface-list-item {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  padding: 6px 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px; font-size: 12px; cursor: pointer; transition: all 0.15s;
+}
+.surface-list-item:hover { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.20); }
+.sli-name { color: #ddd; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sli-badge { color: #89b7ff; font-size: 11px; min-width: 38px; text-align: right; }
+.sli-btn {
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #ddd;
+  width: 22px; height: 22px; padding: 0; border-radius: 4px; cursor: pointer; font-size: 11px; line-height: 1;
+}
+.sli-btn:hover { background: rgba(255,255,255,0.16); color: #fff; }
+.sli-pause { color: #c7f5d5; }
+.sli-del:hover { background: rgba(255,80,80,0.25); border-color: rgba(255,80,80,0.55); color: #ffbdbd; }
+
+/* ---------- Playback HUD (bottom-right) ---------- */
+.playback-hud {
+  position: absolute; bottom: 12px; right: 12px; z-index: 30;
+  display: flex; gap: 6px; padding: 6px 10px;
+  background: rgba(12, 10, 20, 0.72); border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 10px; font-family: ui-monospace, monospace; font-size: 11px;
+  backdrop-filter: blur(6px);
+}
+.hud-pill { padding: 2px 8px; background: rgba(255,255,255,0.06); border-radius: 6px; color: #ddd; }
+.hud-pill.hud-play { background: rgba(64,192,112,0.22); color: #c7f5d5; }
+.hud-pill.hud-empty { color: #ffb380; background: rgba(255,180,64,0.15); }
+
+/* ---------- Show mode (pro presentation) ---------- */
+.show-mode #projection-stepper,
+.show-mode #surface-list-panel,
+.show-mode #projection-calibration,
+.show-mode .viewer-hint,
+.show-mode .fps-counter,
+.show-mode .viewer-controls,
+.show-mode .prompt-panel,
+.show-mode .storyboard,
+.show-mode .studio-header,
+.show-mode .director-panel,
+.show-mode .scene-graph-panel,
+.show-mode .projection-corner-dot { display: none !important; }
+.show-mode #canvas-holder { background: #000; }
+.show-mode .playback-hud { opacity: 0.35; }
+.show-mode .playback-hud:hover { opacity: 1; }

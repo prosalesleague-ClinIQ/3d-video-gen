@@ -10,17 +10,32 @@
 <meta property="og:type" content="website">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🎬%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/app_nav.css">
+<link rel="stylesheet" href="/dashboard_3d.css?v=10">
 
 <script type="importmap">
 {
   "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.webgpu.js",
+    "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.tsl.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
   }
 }
 </script>
 </head>
-<body>
+<body class="app-studio">
+<nav class="app-nav">
+  <a class="app-nav-brand" href="index.html">3D Video Gen</a>
+  <div class="app-nav-links">
+    <a href="index.html" aria-current="page">Studio</a>
+    <a href="mapper.html">Mapper</a>
+    <a href="player.html">Player</a>
+  </div>
+  <div class="app-nav-actions">
+    <a href="mapper.html" class="secondary" style="text-decoration:none; padding:6px 14px; border-radius:6px; background:#5b2f9f; color:#fff; font-size:12px;">🎬 Open AI Mapper →</a>
+  </div>
+</nav>
 <div class="page">
   <header class="header">
     <div class="brand">
@@ -33,6 +48,15 @@
     <div class="status-pill" id="status-pill">
       <span class="dot"></span>
       <span class="label">Loading…</span>
+    </div>
+    <!-- Live tracker status: which trackers are running + current FPS.
+         Updated ~1×/sec by app.js#startTrackerStatusPolling. Click to focus
+         the POV pill (which lets you toggle Face/Hand/Gaze). -->
+    <div class="tracker-status-pill" id="tracker-status" title="Live tracker status — click to scroll to POV picker" hidden>
+      <span class="ts-icon" data-tr="face" data-on="0">👤</span>
+      <span class="ts-icon" data-tr="hand" data-on="0">✋</span>
+      <span class="ts-icon" data-tr="gaze" data-on="0">👁</span>
+      <span class="ts-fps" id="ts-fps">— fps</span>
     </div>
   </header>
 
@@ -151,6 +175,46 @@
       <canvas id="gl"></canvas>
       <div class="viewer-hint" id="viewer-hint">drag to orbit · scroll to zoom · move mouse for parallax</div>
       <div class="fps-counter" id="fps"></div>
+
+      <!-- v3 AI mapper stepper (visible only in project mode) -->
+      <div id="projection-stepper" class="projection-stepper" hidden>
+        <button class="step-btn active" data-step="camera">1 · 🎥 Camera</button>
+        <button class="step-btn" data-step="scan" disabled>2 · 🤖 Scan</button>
+        <button class="step-btn" data-step="detail" disabled title="Detail scan (D)">🔬 Detail</button>
+        <button class="step-btn" data-step="draw" disabled title="Draw a surface">✏️ Draw</button>
+        <button class="step-btn" data-step="randomize" disabled title="Randomize presets (R)">🎲 Randomize</button>
+        <button class="step-btn" data-step="assign" disabled>3 · 🎬 Assign</button>
+        <button class="step-btn" data-step="play" disabled title="Play all (Space)">4 · ▶ Play</button>
+        <button class="step-btn" data-step="show" disabled title="Show mode (S)">🖥️ Show</button>
+      </div>
+
+      <!-- v3 playback HUD -->
+      <div id="playback-hud" class="playback-hud" hidden></div>
+
+      <!-- v3 video picker modal -->
+      <div id="surface-video-picker" class="surface-video-picker hidden">
+        <div class="spv-header" id="spv-title">Pick a video for this surface</div>
+        <div class="spv-row" id="spv-presets"></div>
+        <div class="spv-row spv-inline">
+          <input type="url" id="spv-url" placeholder="Paste a video or image URL (CORS-enabled)" />
+          <input type="file" id="spv-file" accept="video/*,image/*" />
+        </div>
+        <div class="spv-row">
+          <button class="secondary" data-spv-src="scene">🌐 Use live 3D scene</button>
+          <button class="secondary" data-spv-src="webcam">📷 Use webcam</button>
+          <button class="secondary" data-spv-src="empty">✕ Clear</button>
+        </div>
+        <div class="spv-actions">
+          <button id="spv-confirm" class="primary">Apply</button>
+          <button id="spv-cancel" class="secondary">Cancel</button>
+        </div>
+      </div>
+
+      <!-- v3 surface list panel -->
+      <div id="surface-list-panel" class="surface-list-panel" hidden>
+        <div class="slp-header">Detected surfaces</div>
+        <div id="surface-list" class="surface-list"></div>
+      </div>
     </div>
 
     <div class="viewer-controls">
@@ -158,11 +222,130 @@
         <button class="mode-btn active" data-mode="orbit">🖱️ Orbit</button>
         <button class="mode-btn" data-mode="tour">🎞️ Flythrough</button>
         <button class="mode-btn" data-mode="kaleido">🌀 Kaleidoscope</button>
+        <button class="mode-btn" data-mode="splat">💠 Splat</button>
+        <button class="mode-btn" data-mode="project">📽️ Project</button>
       </div>
       <div class="control-group">
+        <button id="btn-pov" class="secondary">📷 POV Tracking</button>
+        <button id="btn-fullscreen" class="secondary">⛶ Fullscreen</button>
         <button id="reset-view" class="secondary">Reset view</button>
         <button id="add-to-storyboard" class="secondary">+ Add to film</button>
         <a id="download-mp4" class="secondary hidden" download>⬇ MP4</a>
+      </div>
+      <div class="toolbar-row">
+        <span class="toolbar-label">Quality</span>
+        <div class="quality-pill" id="quality-pill">
+          <button data-q="low">Low</button>
+          <button data-q="med">Med</button>
+          <button data-q="high" aria-pressed="true">High</button>
+          <button data-q="ultra">Ultra</button>
+        </div>
+      </div>
+      <div class="toolbar-row">
+        <span class="toolbar-label">HDRI</span>
+        <div class="hdri-pill" id="hdri-pill">
+          <button data-h="studio" aria-pressed="true">Studio</button>
+          <button data-h="sunset">Sunset</button>
+          <button data-h="night">Night</button>
+          <button data-h="forest">Forest</button>
+        </div>
+      </div>
+      <div class="toolbar-row">
+        <span class="toolbar-label" title="Pick face- or hand-tracking to drive the off-axis parallax">POV</span>
+        <div class="hdri-pill pov-pill" id="pov-pill">
+          <button data-pov="off" aria-pressed="true">📷 Off</button>
+          <button data-pov="face" title="Face landmarker via webcam">👤 Face</button>
+          <button data-pov="hand" title="Hand landmarker via webcam">✋ Hand</button>
+          <button data-pov="gaze" title="Face + iris gaze (best for Epson stereo)">👁 Gaze</button>
+        </div>
+      </div>
+      <div class="toolbar-row">
+        <span class="toolbar-label" title="Stereo 3D output for Epson + active shutter glasses">3D</span>
+        <div class="hdri-pill stereo-pill" id="stereo-pill">
+          <button data-s="off" aria-pressed="true" title="Off">Off</button>
+          <button data-s="anaglyph" title="Red/cyan glasses">🥽 Anaglyph</button>
+          <button data-s="sbs" title="Side-by-side (Epson 3D: Side-by-Side)">⬌ SBS</button>
+          <button data-s="tb" title="Top/Bottom (Epson 3D: Top-Bottom)">⬍ TB</button>
+        </div>
+      </div>
+      <div class="toolbar-row">
+        <span class="toolbar-label">Palette</span>
+        <div class="hdri-pill palette-pill" id="palette-pill">
+          <button data-p="auto" aria-pressed="true">Auto</button>
+          <button data-p="cosmic">Cosmic</button>
+          <button data-p="neon">Neon</button>
+          <button data-p="sunset">Sunset</button>
+          <button data-p="ocean">Ocean</button>
+          <button data-p="forest">Forest</button>
+          <button data-p="fire">Fire</button>
+          <button data-p="candy">Candy</button>
+          <button data-p="gold">Gold</button>
+          <button data-p="chrome">Chrome</button>
+          <button data-p="mono">Mono</button>
+        </div>
+      </div>
+      <div class="toolbar-row">
+        <label class="toolbar-label" for="scene-scale">Scale</label>
+        <input type="range" id="scene-scale" min="0.5" max="4" step="0.05" value="1" />
+        <span id="scene-scale-val">1.00×</span>
+      </div>
+      <div class="toolbar-row">
+        <label class="toolbar-label" for="kaleido-intensity">Kaleido</label>
+        <input type="range" id="kaleido-intensity" min="3" max="24" step="1" value="8" />
+        <span id="kaleido-intensity-val">8-fold</span>
+      </div>
+      <div class="toolbar-row">
+        <label class="toolbar-label" for="depth-intensity">Depth</label>
+        <input type="range" id="depth-intensity" min="0.2" max="4.0" step="0.05" value="2.0" />
+        <span id="depth-intensity-val">2.00×</span>
+        <label class="toolbar-toggle"><input type="checkbox" id="float-toggle" checked /> ✨ Float</label>
+      </div>
+      <div class="toolbar-row tune-row">
+        <label class="toolbar-label" for="tune-hue">Hue</label>
+        <input type="range" id="tune-hue" min="-180" max="180" step="1" value="0" />
+        <span id="tune-hue-val">0°</span>
+      </div>
+      <div class="toolbar-row tune-row">
+        <label class="toolbar-label" for="tune-sat">Sat</label>
+        <input type="range" id="tune-sat" min="0" max="200" step="1" value="100" />
+        <span id="tune-sat-val">100%</span>
+      </div>
+      <div class="toolbar-row tune-row">
+        <label class="toolbar-label" for="tune-bright">Bright</label>
+        <input type="range" id="tune-bright" min="0" max="200" step="1" value="100" />
+        <span id="tune-bright-val">100%</span>
+      </div>
+      <div class="toolbar-row tune-row">
+        <label class="toolbar-label" for="tune-key">Key</label>
+        <input type="range" id="tune-key" min="0" max="400" step="1" value="100" />
+        <span id="tune-key-val">100%</span>
+      </div>
+      <div class="toolbar-row tune-row">
+        <label class="toolbar-label" for="tune-amb">Ambient</label>
+        <input type="range" id="tune-amb" min="0" max="200" step="1" value="100" />
+        <span id="tune-amb-val">100%</span>
+      </div>
+      <div class="toolbar-row tune-row">
+        <label class="toolbar-label" for="tune-bloom">Bloom</label>
+        <input type="range" id="tune-bloom" min="0" max="300" step="1" value="100" />
+        <span id="tune-bloom-val">100%</span>
+      </div>
+      <div id="pov-calibration" class="pov-calibration">
+        <span id="pov-status" class="pov-status"></span>
+        <button id="pov-calibrate" class="secondary">Calibrate</button>
+      </div>
+      <div id="projection-calibration" class="pov-calibration projection-calibration">
+        <span class="pov-status">Drag the 4 corner dots to calibrate · pick a source:</span>
+        <div class="control-group">
+          <button class="secondary" data-proj-src="webcam">Webcam</button>
+          <button class="secondary" data-proj-src="scene" aria-pressed="true">Scene</button>
+          <button class="secondary" data-proj-src="upload">Upload</button>
+        </div>
+        <div class="control-group">
+          <button id="projection-detect" class="secondary">Detect surfaces</button>
+          <button id="projection-save" class="secondary">Save</button>
+          <button id="projection-load" class="secondary">Load</button>
+        </div>
       </div>
     </div>
 
@@ -223,6 +406,7 @@
 </div>
 
 <script src="/config.js"></script>
+<script src="/dashboard_3d.js?v=10"></script>
 <script type="module" src="/app.js"></script>
 </body>
 </html>

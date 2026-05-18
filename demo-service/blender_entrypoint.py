@@ -158,14 +158,45 @@ def _add_objects(bpy, graph):
 
 
 def _set_world(bpy, graph):
+    """Set the world background.
+
+    If an HDRI file is available under HDRI_DIR, use it as an environment
+    texture for realistic IBL. Otherwise fall back to the flat-color path.
+    """
     if bpy.context.scene.world is None:
         bpy.context.scene.world = bpy.data.worlds.new("World")
     world = bpy.context.scene.world
     world.use_nodes = True
-    bg = world.node_tree.nodes.get("Background")
-    if bg is not None:
-        color = graph.get("world", {}).get("background", [0.05, 0.05, 0.08])
-        bg.inputs["Color"].default_value = (*color[:3], 1.0)
+    nt = world.node_tree
+
+    hdri_name = graph.get("hdri", "studio")
+    hdri_dir = os.environ.get("HDRI_DIR", "/app/assets/hdri")
+    hdri_path = os.path.join(hdri_dir, f"{hdri_name}.hdr")
+    strength = float(graph.get("world", {}).get("hdri_strength", 1.0))
+
+    if os.path.isfile(hdri_path):
+        # Rebuild node graph with env texture → background.
+        for n in list(nt.nodes):
+            nt.nodes.remove(n)
+        out = nt.nodes.new("ShaderNodeOutputWorld")
+        bg = nt.nodes.new("ShaderNodeBackground")
+        env = nt.nodes.new("ShaderNodeTexEnvironment")
+        tex_coord = nt.nodes.new("ShaderNodeTexCoord")
+        mapping = nt.nodes.new("ShaderNodeMapping")
+        try:
+            env.image = bpy.data.images.load(hdri_path)
+        except Exception as e:
+            print(f"[world] HDRI load failed ({hdri_path}): {e}", flush=True)
+        nt.links.new(tex_coord.outputs["Generated"], mapping.inputs["Vector"])
+        nt.links.new(mapping.outputs["Vector"], env.inputs["Vector"])
+        nt.links.new(env.outputs["Color"], bg.inputs["Color"])
+        bg.inputs["Strength"].default_value = strength
+        nt.links.new(bg.outputs["Background"], out.inputs["Surface"])
+    else:
+        bg = nt.nodes.get("Background")
+        if bg is not None:
+            color = graph.get("world", {}).get("background", [0.05, 0.05, 0.08])
+            bg.inputs["Color"].default_value = (*color[:3], 1.0)
 
 
 def _add_ground(bpy):
@@ -196,14 +227,43 @@ def build_and_render(scene_json_path: str, out_dir: str) -> int:
 
     scene = bpy.context.scene
     scene.render.engine = "CYCLES"
-    scene.cycles.device = "CPU"
-    scene.cycles.samples = int(graph.get("samples", 16))
-    scene.cycles.seed = int(graph.get("seed", 0)) & 0x7FFFFFFF
-    scene.cycles.use_denoising = False
-    scene.cycles.use_adaptive_sampling = True
-    scene.cycles.adaptive_threshold = 0.05
 
-    res = graph.get("resolution", [512, 512])
+    # Stream 8: GPU probe — OPTIX → CUDA → METAL → HIP → CPU fallback.
+    device_chosen = "CPU"
+    try:
+        prefs = bpy.context.preferences
+        cprefs = prefs.addons["cycles"].preferences
+        for backend in ("OPTIX", "CUDA", "METAL", "HIP"):
+            try:
+                cprefs.compute_device_type = backend
+                cprefs.get_devices()
+                devices = [d for d in cprefs.devices if d.type == backend]
+                if devices:
+                    for d in cprefs.devices:
+                        d.use = (d.type == backend)
+                    scene.cycles.device = "GPU"
+                    device_chosen = backend
+                    break
+            except Exception as e:
+                print(f"[render] {backend} probe failed: {e}", flush=True)
+    except Exception as e:
+        print(f"[render] GPU probe skipped: {e}", flush=True)
+    if device_chosen == "CPU":
+        scene.cycles.device = "CPU"
+    os.environ["CYCLES_DEVICE"] = device_chosen
+    print(f"[render] cycles device: {device_chosen}", flush=True)
+
+    scene.cycles.samples = int(graph.get("samples", 128))
+    scene.cycles.seed = int(graph.get("seed", 0)) & 0x7FFFFFFF
+    scene.cycles.use_denoising = True
+    try:
+        scene.cycles.denoiser = "OPENIMAGEDENOISE"
+    except Exception:
+        pass
+    scene.cycles.use_adaptive_sampling = True
+    scene.cycles.adaptive_threshold = 0.01
+
+    res = graph.get("resolution", [1920, 1080])
     scene.render.resolution_x = int(res[0])
     scene.render.resolution_y = int(res[1])
     scene.render.resolution_percentage = 100
@@ -211,7 +271,7 @@ def build_and_render(scene_json_path: str, out_dir: str) -> int:
     scene.render.image_settings.file_format = "PNG"
     scene.render.image_settings.color_mode = "RGB"
     scene.render.fps = int(graph.get("fps", 24))
-    frame_count = int(graph.get("frame_count", 48))
+    frame_count = int(graph.get("frame_count", 120))
     scene.frame_start = 1
     scene.frame_end = frame_count
 

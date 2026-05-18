@@ -1,0 +1,23 @@
+{
+  "name": "3d-video-gen",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Browser-first projection mapping + 3D video studio with head / eye / hand tracking.",
+  "scripts": {
+    "test": "bash tests/run_all.sh --quick",
+    "test:full": "bash tests/run_all.sh",
+    "test:backend": "bash tests/test_backend.sh",
+    "deploy": "bash scripts/deploy.sh",
+    "verify": "bash scripts/deploy.sh --verify-only",
+    "lint": "node --check public/*.js public/lib/*.js && python3 -c \"import ast; ast.parse(open('demo-service/app.py').read())\""
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/prosalesleague-ClinIQ/3d-video-gen.git"
+  },
+  "homepage": "https://3d-video-gen.vercel.app",
+  "license": "MIT"
+}

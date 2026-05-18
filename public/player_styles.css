@@ -1,0 +1,209 @@
+/* DOM overlays for Player styles. Each overlay is appended inside
+   #canvas-holder when a style applies, and removed on cleanup. */
+
+.player-style-overlay {
+  position: absolute; inset: 0; pointer-events: none; z-index: 15;
+}
+
+/* Scary — film grain + red vignette */
+.player-style-overlay.style-scary .grain {
+  position: absolute; inset: 0;
+  background-image: repeating-radial-gradient(circle at 50% 50%, rgba(255,255,255,0.03) 0, rgba(255,255,255,0.03) 1px, transparent 1px, transparent 2px);
+  mix-blend-mode: overlay;
+  animation: player-grain 0.12s steps(6) infinite;
+}
+.player-style-overlay .vignette {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at center, transparent 35%, rgba(0,0,0,0.85) 100%);
+}
+.player-style-overlay .vignette-red {
+  background: radial-gradient(ellipse at center, transparent 30%, rgba(40, 0, 0, 0.85) 80%, rgba(60,0,0,0.95) 100%);
+}
+.player-style-overlay .vignette-cool {
+  background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.9) 100%);
+}
+@keyframes player-grain {
+  0%, 100% { transform: translate(0,0); }
+  20% { transform: translate(-2px, 1px); }
+  40% { transform: translate(1px, -2px); }
+  60% { transform: translate(-1px, 2px); }
+  80% { transform: translate(2px, 1px); }
+}
+
+/* Theater — red velvet curtains + gold valance */
+.player-style-overlay.style-theater .theater-curtain {
+  position: absolute; top: 0; bottom: 0; width: 14%;
+  background: linear-gradient(90deg, #3a0008 0%, #5a0010 40%, #420009 60%, #6a0015 100%);
+  box-shadow: inset 0 0 40px rgba(0,0,0,0.7);
+}
+.player-style-overlay .theater-left  { left: 0; }
+.player-style-overlay .theater-right { right: 0; transform: scaleX(-1); }
+.player-style-overlay .theater-valance {
+  position: absolute; top: 0; left: 0; right: 0; height: 12%;
+  background: linear-gradient(180deg, #4a0010 0%, #6a0015 50%, #3a000a 100%);
+  border-bottom: 3px solid #d4a236;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+}
+
+/* Gold frame */
+.player-style-overlay.style-framed .goldframe {
+  position: absolute; inset: 16px;
+  border: 22px solid transparent;
+  border-image: linear-gradient(135deg, #a07a1e 0%, #d4a236 25%, #efd27d 50%, #d4a236 75%, #7d5810 100%) 30;
+  box-shadow: inset 0 0 80px rgba(0,0,0,0.75), 0 0 40px rgba(0,0,0,0.9);
+}
+
+/* Cinema letterbox */
+.player-style-overlay.style-cinema .cinebar {
+  position: absolute; left: 0; right: 0; height: 10%;
+  background: #000;
+  box-shadow: 0 0 40px rgba(0,0,0,0.9);
+}
+.player-style-overlay .cinebar-top { top: 0; }
+.player-style-overlay .cinebar-bottom { bottom: 0; }
+
+/* Rave flash */
+.player-style-overlay.style-rave .rave-flash {
+  position: absolute; inset: 0;
+  background: linear-gradient(120deg, rgba(255,0,180,0.12), rgba(0,180,255,0.12), rgba(120,255,0,0.12));
+  mix-blend-mode: screen;
+  animation: rave-flash 1.4s ease-in-out infinite;
+}
+@keyframes rave-flash {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.75; }
+}
+
+/* Vaporwave — pink/purple grid horizon + sun + scanlines */
+.player-style-overlay.style-vaporwave .vapor-grid {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 50%;
+  background:
+    linear-gradient(transparent 0%, rgba(255,80,200,0.18) 50%, rgba(140,60,255,0.35) 100%),
+    repeating-linear-gradient(90deg, transparent 0, transparent 48px, rgba(255,80,200,0.35) 48px, rgba(255,80,200,0.35) 50px),
+    repeating-linear-gradient(0deg,  transparent 0, transparent 48px, rgba(120,200,255,0.3)  48px, rgba(120,200,255,0.3)  50px);
+  transform: perspective(500px) rotateX(60deg);
+  transform-origin: 50% 100%;
+  mask-image: linear-gradient(transparent 0%, black 60%, black 100%);
+}
+.player-style-overlay.style-vaporwave .vapor-sun {
+  position: absolute; left: 50%; top: 25%; width: 280px; height: 280px; margin-left: -140px;
+  background: radial-gradient(circle at 50% 50%, #ffdb6e 0%, #ff7a9a 60%, transparent 70%);
+  filter: blur(2px);
+  mask-image: linear-gradient(black 0%, black 60%, transparent 60%, black 65%, transparent 65%, black 70%, transparent 70%, black 75%, transparent 75%, black 100%);
+}
+.player-style-overlay.style-vaporwave .vapor-scanlines {
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(0deg, transparent 0, transparent 2px, rgba(255,255,255,0.04) 2px, rgba(255,255,255,0.04) 3px);
+}
+
+/* Church — stained-glass side panes + candle glows */
+.player-style-overlay.style-church .church-stained {
+  position: absolute; top: 0; bottom: 0; width: 14%;
+  background: linear-gradient(180deg,
+    rgba(80, 20, 150, 0.65) 0%,
+    rgba(200, 40, 80, 0.55) 25%,
+    rgba(240, 180, 40, 0.55) 50%,
+    rgba(40, 150, 200, 0.55) 75%,
+    rgba(80, 20, 150, 0.65) 100%);
+  mix-blend-mode: multiply;
+}
+.player-style-overlay.style-church .church-left  { left: 0; }
+.player-style-overlay.style-church .church-right { right: 0; transform: scaleX(-1); }
+.player-style-overlay.style-church .church-candle {
+  position: absolute; bottom: 8%; width: 180px; height: 180px;
+  background: radial-gradient(circle at 50% 50%, rgba(255,180,60,0.55) 0%, rgba(255,120,30,0.25) 40%, transparent 70%);
+  filter: blur(3px);
+  pointer-events: none;
+}
+.player-style-overlay.style-church .church-candle-l { left: 10%; }
+.player-style-overlay.style-church .church-candle-r { right: 10%; }
+
+/* Gallery — warm floor reflection + overhead spotlights */
+.player-style-overlay.style-gallery .gallery-floor {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 18%;
+  background: linear-gradient(180deg, rgba(220,215,205,0.2) 0%, rgba(150,145,135,0.5) 100%);
+  box-shadow: inset 0 2px 10px rgba(0,0,0,0.15);
+}
+.player-style-overlay.style-gallery .gallery-spotlight {
+  position: absolute; top: -10%; width: 55%; height: 80%;
+  background: radial-gradient(ellipse at 50% 30%, rgba(255,250,235,0.35) 0%, transparent 55%);
+  filter: blur(8px);
+  pointer-events: none;
+}
+.player-style-overlay.style-gallery .gal-l { left: -10%; }
+.player-style-overlay.style-gallery .gal-r { right: -10%; }
+
+/* Noir — desaturate + grain + vignette */
+.player-style-overlay.style-noir .noir-desat {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.0);
+  backdrop-filter: grayscale(1) contrast(1.15);
+  -webkit-backdrop-filter: grayscale(1) contrast(1.15);
+}
+.player-style-overlay.style-noir .noir-grain {
+  position: absolute; inset: 0;
+  background-image: repeating-radial-gradient(circle at 30% 30%, rgba(255,255,255,0.035) 0, rgba(255,255,255,0.035) 1px, transparent 1px, transparent 3px);
+  mix-blend-mode: overlay;
+  animation: player-grain 0.18s steps(6) infinite;
+}
+
+/* Aquarium — caustics + rising bubbles */
+.player-style-overlay.style-aquarium .aqua-caustics {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(circle at 25% 30%, rgba(120,220,255,0.18) 0%, transparent 25%),
+    radial-gradient(circle at 75% 50%, rgba(80,200,240,0.2) 0%, transparent 30%),
+    radial-gradient(circle at 45% 70%, rgba(160,240,255,0.12) 0%, transparent 28%);
+  animation: aqua-caust 6s ease-in-out infinite alternate;
+  mix-blend-mode: screen;
+}
+@keyframes aqua-caust {
+  0%   { transform: translate(-4px, -2px) scale(1.02); opacity: 0.8; }
+  100% { transform: translate(4px,  2px) scale(1.05); opacity: 1.0; }
+}
+.player-style-overlay.style-aquarium .aqua-bubbles {
+  position: absolute; inset: 0; pointer-events: none;
+}
+.player-style-overlay.style-aquarium .aqua-bubble {
+  position: absolute; bottom: -20px;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.8), rgba(180,230,255,0.35) 50%, transparent 70%);
+  box-shadow: inset 0 0 4px rgba(255,255,255,0.6);
+  animation: aqua-rise 6s linear forwards;
+}
+@keyframes aqua-rise {
+  0%   { transform: translateY(0)     translateX(0)  scale(0.8); opacity: 0; }
+  10%  { opacity: 0.9; }
+  100% { transform: translateY(-110vh) translateX(30px) scale(1.2); opacity: 0; }
+}
+
+/* Glitch — RGB split + scan distortions */
+.player-style-overlay.style-glitch .glitch-rgb {
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, rgba(255,0,80,0.1) 0%, transparent 20%, transparent 80%, rgba(0,200,255,0.1) 100%);
+  mix-blend-mode: screen;
+  transition: transform 0.05s linear;
+}
+.player-style-overlay.style-glitch .glitch-bars {
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(0deg, transparent 0, transparent 38px, rgba(255,255,255,0.05) 38px, rgba(255,255,255,0.05) 40px);
+  animation: glitch-shift 2.3s linear infinite;
+}
+@keyframes glitch-shift {
+  0%, 96% { transform: translateY(0); }
+  97% { transform: translateY(-6px); }
+  98% { transform: translateY(4px); }
+  99% { transform: translateY(-2px); }
+  100% { transform: translateY(0); }
+}
+.player-style-overlay.style-glitch .glitch-scan {
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, transparent 0%, rgba(255,255,255,0.12) 50%, transparent 100%);
+  height: 20%;
+  animation: glitch-scan 4s linear infinite;
+}
+@keyframes glitch-scan {
+  0%   { top: -20%; }
+  100% { top: 100%; }
+}
