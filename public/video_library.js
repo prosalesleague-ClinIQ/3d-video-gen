@@ -106,6 +106,27 @@ export function getByCategory(catId) {
   return LIBRARY.filter(v => v.cat === catId);
 }
 
+// Resolve a uri back to a human-readable label for the surface list.
+// Match preference (best → worst):
+//   1. Exact match in LIBRARY → use that entry's name (e.g. "🌀 Kaleido fog")
+//   2. Cloudinary URL → strip the path + transforms, return "🎬 <filename>"
+//   3. blob: URL → "📦 Uploaded file"
+//   4. Any other URL → the last 22 chars (lets users see what's there)
+//   5. null / undefined → "(empty)"
+export function getVideoLabel(uri) {
+  if (!uri) return "(empty)";
+  const hit = LIBRARY.find((v) => v.uri === uri);
+  if (hit) return hit.name;
+  if (typeof uri !== "string") return "(unknown)";
+  if (uri.startsWith("blob:")) return "📦 Uploaded file";
+  if (uri.includes("res.cloudinary.com")) {
+    const tail = uri.split("/").pop() || "video";
+    const stem = tail.replace(/\.[^.]+$/, "");
+    return `🎬 ${stem}`;
+  }
+  return uri.length > 22 ? `…${uri.slice(-22)}` : uri;
+}
+
 // Top picks to preload (served from Cloudinary CDN edge — each ~1-3 MB).
 // These are the highest-wow items per category that we want warm on first
 // interaction. Called by mapper.html / player.html via <link rel=preload>.

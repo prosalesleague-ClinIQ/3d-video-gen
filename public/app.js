@@ -1808,6 +1808,9 @@ function wireToolbar() {
     // SECURITY: surfaces[] are unauthenticated payloads from /projection-project/{id}.
     // Escape name/id before any HTML interpolation (see .audit/1-security/C1).
     const _esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
+    // Lazy-import getVideoLabel — Studio doesn't always need it.
+    let getVideoLabel = (uri) => uri || "(empty)";
+    import("./video_library.js").then((m) => { getVideoLabel = m.getVideoLabel; }).catch(() => {});
     list.innerHTML = items.map(s => {
       const badge = s.source === "empty" ? "empty" : s.source === "video" ? "🎬" : s.source === "image" ? "🖼️" : s.source === "scene" ? "🌐" : s.source === "webcam" ? "📷" : _esc(s.source);
       const playing = projectionHandle?.isPlaying?.(s.id);
@@ -1815,8 +1818,15 @@ function wireToolbar() {
       const playBtn = canPlay
         ? `<button class="sli-btn sli-${playing ? "pause" : "play"}" data-act="${playing ? "pause" : "play"}" title="${playing ? "Pause" : "Play"}">${playing ? "⏸" : "▶"}</button>`
         : "";
+      const assignedLabel = (s.source === "video" || s.source === "image") ? getVideoLabel(s.uri)
+                          : s.source === "scene"  ? "🌐 Live scene"
+                          : s.source === "webcam" ? "📷 Webcam"
+                          : "(empty)";
       return `<div class="surface-list-item" data-sid="${_esc(s.id)}">
-        <span class="sli-name" title="Click to assign">${_esc(s.name)}</span>
+        <div class="sli-text">
+          <span class="sli-name" title="Click to assign">${_esc(s.name)}</span>
+          <span class="sli-assigned" title="${_esc(s.uri || '')}">${_esc(assignedLabel)}</span>
+        </div>
         <span class="sli-badge">${badge}</span>
         ${playBtn}
         <button class="sli-btn sli-del" data-act="delete" title="Remove">✕</button>

@@ -401,6 +401,46 @@ h1 {
 .rp-row:hover .rp-remove { opacity: 1; }
 .rp-remove:hover { background: rgba(239, 68, 68, 0.12); border-color: rgba(239, 68, 68, 0.4); color: var(--err); }
 
+/* --- Surface-list row polish: now a two-line layout (name + assigned label) --- */
+.sli-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.sli-name { font-weight: 500; color: #eaeaf6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.85rem; }
+.sli-assigned { font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.surface-list-item:hover .sli-assigned { color: rgba(255, 255, 255, 0.7); }
+
+/* --- Draft-restore toast (bottom-centre, dismisses on click or after 15s) --- */
+.draft-restore-toast {
+  position: fixed; bottom: 20px; left: 50%;
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px;
+  background: linear-gradient(180deg, rgba(20, 24, 44, 0.98) 0%, rgba(14, 18, 36, 0.98) 100%);
+  border: 1px solid rgba(140, 220, 255, 0.30);
+  border-radius: 10px;
+  color: #eaeaf6;
+  font-size: 0.85rem;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  z-index: 9000;
+  animation: ob-fade-in 280ms ease-out;
+}
+.draft-restore-toast .drt-msg { color: #eaeaf6; }
+.draft-restore-toast .drt-msg strong { color: #5cf; }
+.draft-restore-toast .primary,
+.draft-restore-toast .secondary {
+  padding: 6px 12px; font-size: 0.8rem; border-radius: 5px;
+  cursor: pointer; border: 1px solid transparent;
+}
+.draft-restore-toast .primary {
+  background: linear-gradient(180deg, #8b5ac8 0%, #5b2f9f 100%);
+  color: #fff; border-color: rgba(220, 180, 255, 0.5);
+}
+.draft-restore-toast .secondary {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.draft-restore-toast .primary:hover { filter: brightness(1.12); }
+.draft-restore-toast .secondary:hover { color: #eaeaf6; }
+
 /* ---------- Cards (shared shell) ---------- */
 
 .prompt-bar, .director-panel, .viewer, .storyboard, .card.details {

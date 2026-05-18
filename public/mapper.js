@@ -19,9 +19,10 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { ProjectionMode, PRESETS } from "./projection_mapping.js";
 import { HandTracker } from "./hand_tracking.js";
 import Maptastic from "./lib/maptastic.js";
-import { LIBRARY, CATEGORIES, getByCategory } from "./video_library.js";
+import { LIBRARY, CATEGORIES, getByCategory, getVideoLabel } from "./video_library.js";
 import { openSaveModal } from "./save_modal.js";
 import { addProject } from "./recent_projects.js";
+import { startAutosave, maybeOfferRestore, clearDraft } from "./draft_autosave.js";
 
 const BACKEND = window.__BACKEND_URL__ || "";
 
@@ -127,6 +128,34 @@ async function bootProjection() {
     projectionHandle = new ProjectionMode();
     await projectionHandle.init({ scene, camera, renderer, composer, holder: els.holder });
     projectionHandle.mountCornerUI(els.holder, null);
+
+    // --- Draft autosave + restore ---------------------------------------
+    // Survives accidental refresh / tab close. Snapshot every 4s as long
+    // as there are surfaces. Cleared after a successful save (to avoid
+    // re-offering a draft the user has already committed to the backend).
+    startAutosave(() => projectionHandle?.getSurfaces?.() || []);
+    const restoredDraft = await maybeOfferRestore();
+    if (restoredDraft && Array.isArray(restoredDraft) && restoredDraft.length) {
+      let restored = 0;
+      for (const s of restoredDraft) {
+        if (!s?.polygon || s.polygon.length < 3) continue;
+        const surf = projectionHandle.addManualSurface(s.polygon);
+        if (!surf) continue;
+        restored++;
+        if ((s.source === "video" || s.source === "image") && s.uri) {
+          try { await projectionHandle.assignToSurface(surf.id, { source: s.source, uri: s.uri }); }
+          catch { /* drop just this surface, keep going */ }
+        } else if (s.source === "scene" || s.source === "webcam") {
+          try { await projectionHandle.assignToSurface(surf.id, { source: s.source }); }
+          catch {}
+        }
+      }
+      if (restored) {
+        renderSurfaceList();
+        setStatus("ok", `Restored ${restored} surface${restored === 1 ? "" : "s"} from draft`);
+        markStepDone("camera"); markStepDone("scan"); markStepDone("assign");
+      }
+    }
 
     // If the user opened this page in a background tab, defer auto-camera —
     // a permission prompt on a hidden tab is confusing and gets autodenied
@@ -769,8 +798,18 @@ function renderSurfaceList() {
     const playing = projectionHandle.isPlaying(s.id);
     const canPlay = s.source === "video";
     const playBtn = canPlay ? `<button class="sli-btn" data-act="${playing ? "pause" : "play"}">${playing ? "⏸" : "▶"}</button>` : "";
+    // Resolve uri → human-readable label (LIBRARY entry name, or Cloudinary
+    // filename, or "(empty)"). Shows the user WHAT'S MAPPED WHERE, which
+    // used to be invisible — the previous list only showed a source badge.
+    const assignedLabel = (s.source === "video" || s.source === "image") ? getVideoLabel(s.uri)
+                        : s.source === "scene"  ? "🌐 Live scene"
+                        : s.source === "webcam" ? "📷 Webcam"
+                        : "(empty)";
     return `<div class="surface-list-item" data-sid="${_esc(s.id)}">
-      <span class="sli-name">${_esc(s.name)}</span>
+      <div class="sli-text">
+        <span class="sli-name">${_esc(s.name)}</span>
+        <span class="sli-assigned" title="${_esc(s.uri || '')}">${_esc(assignedLabel)}</span>
+      </div>
       <span class="sli-badge">${badge}</span>
       ${playBtn}
       <button class="sli-btn sli-del" data-act="delete">✕</button>
@@ -911,6 +950,9 @@ els.btnSave?.addEventListener("click", async () => {
     if (els.saveIdInput) els.saveIdInput.value = result.id;
     if (els.openPlayer) els.openPlayer.href = `player.html?id=${encodeURIComponent(result.id)}&style=blacked`;
     els.saveResult?.removeAttribute("hidden");
+    // Saved to backend → the autosave draft is no longer the freshest
+    // copy; clear it so the next visit won't offer to restore.
+    clearDraft();
     setStatus("ok", "Saved");
   } else if (result === null) {
     setStatus("ok", "Save cancelled");
